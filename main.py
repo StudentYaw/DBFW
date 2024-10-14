@@ -3,9 +3,8 @@ import sys
 import pyautogui
 import pygetwindow as gw
 from PIL import Image
-from pathlib import Path
-
 from dialog import *
+from Codes import *
 
 # codes
 CODES_FILE = 'codes.txt'
@@ -15,6 +14,7 @@ CODES_ERR_FILE = 'codes_with_errors.txt'
 
 counterSuc = 0
 counterErr = 0
+counterAlr = 0
 
 # resources folder
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -29,11 +29,15 @@ TEXTBOX_IMG = RESOURCES / 'textbox.png'
 CONFIRM_IMG = RESOURCES / 'confirm.png'
 SUCCESS_IMG = RESOURCES / 'success.png'
 CLOSE_IMG = RESOURCES / 'close.png'
+ALREADYUSED_IMG = RESOURCES / 'alreadyused.png'
+INVALID_IMG = RESOURCES / 'invalid.png'
 # scaled images
 TEXTBOX_IMG1 = RESOURCES / 'textbox_scaled.png'
 CONFIRM_IMG1 = RESOURCES / 'confirm_scaled.png'
 SUCCESS_IMG1 = RESOURCES / 'success_scaled.png'
 CLOSE_IMG1 = RESOURCES / 'close_scaled.png'
+ALREADYUSED_IMG1 = RESOURCES / 'alreadyused.png'
+INVALID_IMG1 = RESOURCES / 'invalid.png'
 
 # constants
 CODE_LENGTH = 16
@@ -42,19 +46,6 @@ SLEEP = 0.5
 SLEEP_CONFIRM = 5
 WRITE_INTERVAL = 0.03
 ORIGINAL_RESOLUTION = (1920, 1080)
-
-# Get Window Size
-windows = gw.getWindowsWithTitle('DBSCGFW')
-
-if windows:
-    # Assuming you want to work with the first window with the given title
-    window = windows[0]
-    
-    # Get window size and position
-    width, height = window.width, window.height
-    # print(f"Window Size: Width={width}, Height={height}")
-else:
-    print("No window with the given title found.")
 
 # function to determine Scale factor
 def get_scaling_factor(ORIGINAL_RESOLUTION, current_resolution):
@@ -83,14 +74,11 @@ def locate_image_on_screen(image_path, scaling_factor):
     scaled_image_path = scale_image(image_path, scaling_factor)
     if scaled_image_path:
         try:
-            # print(f"Attempting to locate image at: {scaled_image_path}")
             position = pyautogui.locateOnScreen(scaled_image_path.as_posix(),confidence= CONFIDENCE)
             return position
         except pyautogui.ImageNotFoundException:
-            # print("Image not found on screen.")
             return None
         except Exception as e:
-            # print(f"Error locating image on screen: {e}")
             return None
     return None
 
@@ -108,21 +96,38 @@ def resolve_to_standard_resolution(width, height):
     for (std_width, std_height) in standard_resolutions:
         if (abs(width - std_width) <= tolerance) and (abs(height - std_height) <= tolerance):
             return (std_width, std_height)
-    
     return None
+
+
+if message_box(f'Welcome to Code Enjector! Press OK to Continue!', style=STYLE_OKCANCEL) == IDCANCEL:
+    exit()
+if message_box(f'Need to Insert Codes?', style=STYLE_Q) == IDYES:
+    run_codes()
+
+# Get Window Size
+windows = gw.getWindowsWithTitle('DBSCGFW')
+
+if windows:
+    # Assuming you want to work with the first window with the given title
+    window = windows[0]
+    
+    # Get window size and position
+    width, height = window.width, window.height
 
 # Calc of Window Res and Scaling factor
 try:
     current_resolution = resolve_to_standard_resolution(width, height) # Window Resolution
     scaling_factor = get_scaling_factor(ORIGINAL_RESOLUTION, current_resolution)
 except Exception:
-    raise CustomException(f'Game or Codes Section is not opened')
+    raise CustomException(f'Game isnt opened make sure the Game is opened!')
 
 # generate Scaled Images
-locate_image_on_screen(TEXTBOX_IMG, scaling_factor)
-locate_image_on_screen(CONFIRM_IMG, scaling_factor)
-locate_image_on_screen(SUCCESS_IMG, scaling_factor)
-locate_image_on_screen(CLOSE_IMG, scaling_factor)
+scale_image(TEXTBOX_IMG, scaling_factor)
+scale_image(CONFIRM_IMG, scaling_factor)
+scale_image(SUCCESS_IMG, scaling_factor)
+scale_image(CLOSE_IMG, scaling_factor)
+scale_image(ALREADYUSED_IMG, scaling_factor)
+scale_image(INVALID_IMG, scaling_factor)
 
 try:
     with open(CODES_FILE) as f:
@@ -136,14 +141,14 @@ except FileNotFoundError:
 
 approx_time = int(1 + len(codes) * (SLEEP + SLEEP_CONFIRM + CODE_LENGTH*WRITE_INTERVAL) / 60)
 suffix = 'minute' if approx_time == 1 else 'minutes'
-if message_box(f'This process will take approximately {approx_time} {suffix}. Continue?', style=MB_OKCANCEL) == IDCANCEL:
+if message_box(f'This process will take approximately {approx_time} {suffix}. Continue?', style=STYLE_OKCANCEL) == IDCANCEL:
     exit()
 
 pyautogui.sleep(SLEEP)
 
 errors = False
-for code in codes:
-    # enter code
+while codes:
+    code = codes.pop(0)
     try:
         res = pyautogui.locateOnScreen(TEXTBOX_IMG1.as_posix(), confidence=CONFIDENCE)
         location = (res.left + res.width*0.1, res.top + res.height*0.5)
@@ -152,7 +157,7 @@ for code in codes:
         pyautogui.sleep(SLEEP)
         pyautogui.write(code, WRITE_INTERVAL)
     except Exception:
-        raise CustomException(f'Game or Codes Section is not opened')
+        raise CustomException(f'Codes Section is not opened')
 
     # confirm
     try:
@@ -165,14 +170,25 @@ for code in codes:
     # check if successful
     try:
         res = pyautogui.locateOnScreen(SUCCESS_IMG1.as_posix(), confidence=CONFIDENCE)
-        counterSuc = counterSuc+1
+        counterSuc += 1
     except:
         errors = True
-        counterErr = counterErr+1
-        with open(CODES_ERR_FILE, 'a') as f:
-            f.write(f'{code}\n')
+        try:    
+            pyautogui.locateOnScreen(ALREADYUSED_IMG1.as_posix(), confidence=CONFIDENCE)
+            with open(CODES_ERR_FILE, 'a') as f:
+                f.write(f'{code} Already used!\n')
+                counterAlr  += 1
+        except: 
+            try:
+                pyautogui.locateOnScreen(INVALID_IMG1.as_posix(), confidence=CONFIDENCE)
+                with open(CODES_ERR_FILE, 'a') as f:
+                    f.write(f'{code} Invalid Code!\n')
+                counterErr += 1 
+            except:
+                with open(CODES_ERR_FILE, 'a') as f:
+                    f.write(f'{code} Unknown Issue!\n')
         if counterErr>=5:
-            message_box('Exceeded the maximum numbers of Fails!', icon=MB_ICONEXCLAMATION)
+            message_box('Exceeded the maximum numbers of Fails!', icon=ICON_EXCLAMATION)
             break
 
     # close
@@ -182,7 +198,12 @@ for code in codes:
     except:
         raise CustomException('Cannot press Close')
 
+with open(CODES_FILE, 'w') as file:
+    for code in codes:
+        file.write(f'{code} \n')
+
+
 if errors:
-    message_box(f'Some errors occured!\nThey were {counterErr} faulty codes and {counterSuc} successful one. \nThe codes have been written to {CODES_ERR_FILE}', icon=MB_ICONEXCLAMATION)
+    message_box(f'Some errors occured!\nThey were {counterErr} invalid codes, {counterAlr} Codes that were Already used and {counterSuc} successful one. \nThe codes have been written to {CODES_ERR_FILE}', icon=ICON_EXCLAMATION)
 else:
     message_box(f'Done! I had {counterSuc} Succeful Codes')
