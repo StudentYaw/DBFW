@@ -100,7 +100,7 @@ def resolve_to_standard_resolution(width, height):
 
 
 if message_box(f'Welcome to Code Enjector! Press OK to Continue!', style=STYLE_OKCANCEL) == IDCANCEL:
-    exit()
+    sys.exit()
 if message_box(f'Need to Insert Codes?', style=STYLE_Q) == IDYES:
     run_codes()
 
@@ -142,7 +142,7 @@ except FileNotFoundError:
 approx_time = int(1 + len(codes) * (SLEEP + SLEEP_CONFIRM + CODE_LENGTH*WRITE_INTERVAL) / 60)
 suffix = 'minute' if approx_time == 1 else 'minutes'
 if message_box(f'This process will take approximately {approx_time} {suffix}. Continue?', style=STYLE_OKCANCEL) == IDCANCEL:
-    exit()
+    sys.exit()
 
 pyautogui.sleep(SLEEP)
 

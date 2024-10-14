@@ -39,6 +39,20 @@ def append_extract():
 def clear_text():
     input_box.delete("1.0", tk.END)
 
+# Function to center the window on the screen
+def center_window(root):
+    root.update_idletasks()  # Update the window's size and geometry
+    width = root.winfo_width()
+    height = root.winfo_height()
+
+    # Calculate the x and y coordinates to center the window
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    x = (screen_width // 2) - (width // 2)
+    y = (screen_height // 2) - (height // 2)
+
+    root.geometry(f"{width}x{height}+{x}+{y}")
+
 # Function to create and run the GUI
 def run_codes():
     global input_box  # Declare input_box as global to access in extract_codes
@@ -46,8 +60,11 @@ def run_codes():
     # Create the main window
     root = tk.Tk()
     root.title("Code Extractor")
-    root.geometry("600x400")
+    root.geometry("600x400")  # Initial size
     root.configure(bg="#e9ecef")  # Light background color
+
+    # Center the window
+    center_window(root)
 
     # Header label
     header = tk.Label(
@@ -93,13 +110,11 @@ def run_codes():
     create_button("Clear", clear_text)
 
     def on_closing():
-        print("F in chat")
-        root.destroy()
-        root.quit() 
+        root.quit()  # Stop the main loop
+        root.destroy()  # Close the window
         
     # Bind the window close event
     root.protocol("WM_DELETE_WINDOW", on_closing)
 
     # Start the main event loop
     root.mainloop()
-   
