@@ -1,6 +1,20 @@
 import tkinter as tk
 from tkinter import messagebox, scrolledtext
 import re
+from pathlib import Path
+import sys
+
+
+# Resources folder
+if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    # PyInstaller temp path
+    RESOURCES = Path(sys._MEIPASS) / 'res'
+else:
+    # Local res folder
+    RESOURCES = Path(__file__).parent / 'res'
+
+LOGO = RESOURCES / 'logo.ico'
+
 
 # Global variable to track whether to append or overwrite
 append_mode = False
@@ -63,6 +77,9 @@ def run_codes():
     root.geometry("600x400")  # Initial size
     root.configure(bg="#e9ecef")  # Light background color
 
+    # Set the icon for the window
+    root.iconbitmap(LOGO)
+
     # Center the window
     center_window(root)
 
@@ -99,19 +116,19 @@ def run_codes():
         button.bind("<Leave>", on_leave)
         button.pack(side=tk.LEFT, padx=10)  # Use pack for modern layout
         return button
+    
+    def on_closing():
+        root.quit()  # Stop the main loop
+        root.destroy()  # Close the window
 
     # Extract button
     create_button("Extract Codes", initial_extract)
 
-    # Append button
-    create_button("Append Codes", append_extract)
-
     # Clear button
     create_button("Clear", clear_text)
 
-    def on_closing():
-        root.quit()  # Stop the main loop
-        root.destroy()  # Close the window
+    # Append button
+    create_button("Next", on_closing)
         
     # Bind the window close event
     root.protocol("WM_DELETE_WINDOW", on_closing)

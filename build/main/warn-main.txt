@@ -14,15 +14,14 @@ Types if import:
 IMPORTANT: Do NOT post this list to the issue-tracker. Use it as a basis for
             tracking down the missing module yourself. Thanks!
 
-missing module named pyimod02_importers - imported by C:\Users\Yaw\Downloads\DBFW\.venv\Lib\site-packages\PyInstaller\hooks\rthooks\pyi_rth_pkgres.py (delayed), C:\Users\Yaw\Downloads\DBFW\.venv\Lib\site-packages\PyInstaller\hooks\rthooks\pyi_rth_pkgutil.py (delayed)
 missing module named pwd - imported by posixpath (delayed, conditional, optional), shutil (delayed, optional), tarfile (optional), pathlib (delayed, optional), subprocess (delayed, conditional, optional), http.server (delayed, optional), netrc (delayed, conditional), getpass (delayed), setuptools._distutils.util (delayed, conditional, optional), setuptools._distutils.archive_util (optional), setuptools._vendor.backports.tarfile (optional)
 missing module named grp - imported by shutil (delayed, optional), tarfile (optional), pathlib (delayed, optional), subprocess (delayed, conditional, optional), setuptools._distutils.archive_util (optional), setuptools._vendor.backports.tarfile (optional)
-missing module named posix - imported by os (conditional, optional), posixpath (optional), shutil (conditional), importlib._bootstrap_external (conditional)
-missing module named resource - imported by posix (top-level)
-excluded module named _frozen_importlib - imported by importlib (optional), importlib.abc (optional), zipimport (top-level)
-missing module named _frozen_importlib_external - imported by importlib._bootstrap (delayed), importlib (optional), importlib.abc (optional), zipimport (top-level)
 missing module named _posixsubprocess - imported by subprocess (conditional), multiprocessing.util (delayed)
 missing module named fcntl - imported by subprocess (optional)
+missing module named _frozen_importlib_external - imported by importlib._bootstrap (delayed), importlib (optional), importlib.abc (optional), zipimport (top-level)
+excluded module named _frozen_importlib - imported by importlib (optional), importlib.abc (optional), zipimport (top-level)
+missing module named posix - imported by os (conditional, optional), posixpath (optional), shutil (conditional), importlib._bootstrap_external (conditional)
+missing module named resource - imported by posix (top-level)
 missing module named _posixshmem - imported by multiprocessing.resource_tracker (conditional), multiprocessing.shared_memory (conditional)
 missing module named _scproxy - imported by urllib.request (conditional)
 missing module named termios - imported by tty (top-level), getpass (optional)
@@ -48,6 +47,7 @@ missing module named jnius - imported by setuptools._vendor.platformdirs.android
 missing module named android - imported by setuptools._vendor.platformdirs.android (delayed, conditional, optional)
 missing module named asyncio.DefaultEventLoopPolicy - imported by asyncio (delayed, conditional), asyncio.events (delayed, conditional)
 missing module named trove_classifiers - imported by setuptools.config._validate_pyproject.formats (optional)
+missing module named pyimod02_importers - imported by C:\Users\Yaw\Downloads\DBFW\.venv\Lib\site-packages\PyInstaller\hooks\rthooks\pyi_rth_pkgutil.py (delayed), C:\Users\Yaw\Downloads\DBFW\.venv\Lib\site-packages\PyInstaller\hooks\rthooks\pyi_rth_pkgres.py (delayed)
 missing module named olefile - imported by PIL.FpxImagePlugin (top-level), PIL.MicImagePlugin (top-level)
 missing module named _dummy_thread - imported by numpy._core.arrayprint (optional)
 missing module named numpy._typing._ufunc - imported by numpy._typing (conditional)
@@ -248,5 +248,4 @@ missing module named Tkinter - imported by pymsgbox (conditional, optional), mou
 missing module named 'rubicon.objc' - imported by mouseinfo (conditional)
 missing module named rubicon - imported by mouseinfo (conditional)
 missing module named Foundation - imported by pyperclip (delayed, conditional, optional)
-missing module named PyQt5 - imported by pyperclip (delayed, conditional, optional)
 missing module named qtpy - imported by pyperclip (delayed, conditional, optional)

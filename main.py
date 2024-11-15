@@ -15,6 +15,7 @@ CODES_ERR_FILE = 'codes_with_errors.txt'
 counterSuc = 0
 counterErr = 0
 counterAlr = 0
+NotDone = True
 
 # resources folder
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -98,12 +99,6 @@ def resolve_to_standard_resolution(width, height):
             return (std_width, std_height)
     return None
 
-
-if message_box(f'Welcome to Code Enjector! Press OK to Continue!', style=STYLE_OKCANCEL) == IDCANCEL:
-    sys.exit()
-if message_box(f'Need to Insert Codes?', style=STYLE_Q) == IDYES:
-    run_codes()
-
 # Get Window Size
 windows = gw.getWindowsWithTitle('DBSCGFW')
 
@@ -129,81 +124,88 @@ scale_image(CLOSE_IMG, scaling_factor)
 scale_image(ALREADYUSED_IMG, scaling_factor)
 scale_image(INVALID_IMG, scaling_factor)
 
-try:
-    with open(CODES_FILE) as f:
-        codes = [''.join(line.strip().split()) for line in f]
-        if not codes:
-            raise CustomException(f'{CODES_FILE} is empty')
-        if not all(len(code) == CODE_LENGTH for code in codes):
-            raise CustomException(f'Ensure all codes have {CODE_LENGTH} characters')
-except FileNotFoundError:
-    raise CustomException(f'{CODES_FILE} not found')
-
-approx_time = int(1 + len(codes) * (SLEEP + SLEEP_CONFIRM + CODE_LENGTH*WRITE_INTERVAL) / 60)
-suffix = 'minute' if approx_time == 1 else 'minutes'
-if message_box(f'This process will take approximately {approx_time} {suffix}. Continue?', style=STYLE_OKCANCEL) == IDCANCEL:
-    sys.exit()
-
-pyautogui.sleep(SLEEP)
-
-errors = False
-while codes:
-    code = codes.pop(0)
+while NotDone:
+    run_codes()
     try:
-        res = pyautogui.locateOnScreen(TEXTBOX_IMG1.as_posix(), confidence=CONFIDENCE)
-        location = (res.left + res.width*0.1, res.top + res.height*0.5)
-        pyautogui.click(*location)
-        pyautogui.click(*location)
-        pyautogui.sleep(SLEEP)
-        pyautogui.write(code, WRITE_INTERVAL)
-    except Exception:
-        raise CustomException(f'Codes Section is not opened')
+        with open(CODES_FILE) as f:
+            codes = [''.join(line.strip().split()) for line in f]
+            if not codes:
+                raise CustomException(f'{CODES_FILE} is empty')
+            if not all(len(code) == CODE_LENGTH for code in codes):
+                raise CustomException(f'Ensure all codes have {CODE_LENGTH} characters')
+    except FileNotFoundError:
+        raise CustomException(f'{CODES_FILE} not found')
 
-    # confirm
-    try:
-        res = pyautogui.locateOnScreen(CONFIRM_IMG1.as_posix(), confidence=CONFIDENCE)
-        pyautogui.click(pyautogui.center(res))
-        pyautogui.sleep(SLEEP_CONFIRM)
-    except:
-        raise CustomException('Cannot press Confirm')
+    approx_time = int(1 + len(codes) * (SLEEP + SLEEP_CONFIRM + CODE_LENGTH*WRITE_INTERVAL) / 60)
+    suffix = 'minute' if approx_time == 1 else 'minutes'
+    if message_box(f'This process will take approximately {approx_time} {suffix}. Continue?', style=STYLE_OKCANCEL) == IDCANCEL:
+        sys.exit()
 
-    # check if successful
-    try:
-        res = pyautogui.locateOnScreen(SUCCESS_IMG1.as_posix(), confidence=CONFIDENCE)
-        counterSuc += 1
-    except:
-        errors = True
-        try:    
-            pyautogui.locateOnScreen(ALREADYUSED_IMG1.as_posix(), confidence=CONFIDENCE)
-            with open(CODES_ERR_FILE, 'a') as f:
-                f.write(f'{code} Already used!\n')
-                counterAlr  += 1
-        except: 
-            try:
-                pyautogui.locateOnScreen(INVALID_IMG1.as_posix(), confidence=CONFIDENCE)
+    pyautogui.sleep(SLEEP)
+
+    errors = False
+    while codes:
+        code = codes.pop(0)
+        try:
+            res = pyautogui.locateOnScreen(TEXTBOX_IMG1.as_posix(), confidence=CONFIDENCE)
+            location = (res.left + res.width*0.1, res.top + res.height*0.5)
+            pyautogui.click(*location)
+            pyautogui.click(*location)
+            pyautogui.sleep(SLEEP)
+            pyautogui.write(code, WRITE_INTERVAL)
+        except Exception:
+            raise CustomException(f'Codes Section is not opened')
+
+        # confirm
+        try:
+            res = pyautogui.locateOnScreen(CONFIRM_IMG1.as_posix(), confidence=CONFIDENCE)
+            pyautogui.click(pyautogui.center(res))
+            pyautogui.sleep(SLEEP_CONFIRM)
+        except:
+            raise CustomException('Cannot press Confirm')
+
+        # check if successful
+        try:
+            res = pyautogui.locateOnScreen(SUCCESS_IMG1.as_posix(), confidence=CONFIDENCE)
+            counterSuc += 1
+        except:
+            errors = True
+            try:    
+                pyautogui.locateOnScreen(ALREADYUSED_IMG1.as_posix(), confidence=CONFIDENCE)
                 with open(CODES_ERR_FILE, 'a') as f:
-                    f.write(f'{code} Invalid Code!\n')
-                counterErr += 1 
-            except:
-                with open(CODES_ERR_FILE, 'a') as f:
-                    f.write(f'{code} Unknown Issue!\n')
-        if counterErr>=5:
-            message_box('Exceeded the maximum numbers of Fails!', icon=ICON_EXCLAMATION)
-            break
+                    f.write(f'{code} Already used!\n')
+                    counterAlr  += 1
+            except: 
+                try:
+                    pyautogui.locateOnScreen(INVALID_IMG1.as_posix(), confidence=CONFIDENCE)
+                    with open(CODES_ERR_FILE, 'a') as f:
+                        f.write(f'{code} Invalid Code!\n')
+                    counterErr += 1 
+                except:
+                    with open(CODES_ERR_FILE, 'a') as f:
+                        f.write(f'{code} Unknown Issue!\n')
+            if counterErr>=5:
+                message_box('Exceeded the maximum numbers of Fails!', icon=ICON_EXCLAMATION)
+                break
 
-    # close
-    try:
-        res = pyautogui.locateOnScreen(CLOSE_IMG1.as_posix(), confidence=CONFIDENCE)
-        pyautogui.click(pyautogui.center(res))
-    except:
-        raise CustomException('Cannot press Close')
+        # close
+        try:
+            res = pyautogui.locateOnScreen(CLOSE_IMG1.as_posix(), confidence=CONFIDENCE)
+            pyautogui.click(pyautogui.center(res))
+        except:
+            raise CustomException('Cannot press Close')
 
-with open(CODES_FILE, 'w') as file:
-    for code in codes:
-        file.write(f'{code} \n')
+    with open(CODES_FILE, 'w') as file:
+        for code in codes:
+            file.write(f'{code} \n')
 
 
-if errors:
-    message_box(f'Some errors occured!\nThey were {counterErr} invalid codes, {counterAlr} Codes that were Already used and {counterSuc} successful one. \nThe codes have been written to {CODES_ERR_FILE}', icon=ICON_EXCLAMATION)
-else:
-    message_box(f'Done! I had {counterSuc} Succeful Codes')
+    if errors:
+        if message_box(
+            f'Some errors occured!\nThey were {counterErr} invalid codes, {counterAlr} Codes that were Already used and {counterSuc} successful one. \nThe codes have been written to {CODES_ERR_FILE} \nContinue?'
+            , icon=ICON_EXCLAMATION , style=STYLE_Q
+            ) == IDNO:
+            NotDone = False
+    else:
+        if message_box(f'Done! I had {counterSuc} Succeful Codes \nContinue?' , style=STYLE_Q) == IDNO:
+            NotDone = False
