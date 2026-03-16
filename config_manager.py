@@ -22,7 +22,9 @@ class ConfigManager:
                 'write_interval': 0.03,
                 'original_resolution': [1920, 1080],
                 'tolerance': 100,
-                'max_errors': 5
+                'max_errors': 5,
+                'manual_overwrite_default': True,
+                'ocr_overwrite_default': False
             }
 
     def get(self, key):

@@ -7,6 +7,7 @@ import sys
 import os
 from PIL import Image, ImageEnhance
 import pytesseract
+from config_manager import ConfigManager
 
 
 # Resources folder
@@ -24,9 +25,14 @@ class CodeExtractor(QMainWindow):
     def __init__(self):
         super().__init__()
         self._setup_tesseract()
+        self.config = ConfigManager()
         self.setWindowTitle("Code Extractor")
         self.setGeometry(100, 100, 600, 400)
         self.setWindowIcon(QIcon(str(LOGO)))
+        self.manual_overwrite = self._get_bool_config("manual_overwrite_default", True)
+        self.ocr_overwrite_default = self._get_bool_config("ocr_overwrite_default", False)
+        # Erstklick-Switch ist nur sinnvoll, wenn initial Overwrite aktiv ist.
+        self._first_extract_click_pending = self.manual_overwrite
 
         # Central widget
         central_widget = QWidget()
@@ -39,6 +45,10 @@ class CodeExtractor(QMainWindow):
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header)
 
+        self.mode_label = QLabel()
+        self.mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.mode_label)
+
         # Text edit
         self.input_box = QTextEdit()
         self.input_box.setFont(QFont("Arial", 12))
@@ -50,7 +60,7 @@ class CodeExtractor(QMainWindow):
 
         # Buttons
         self.extract_button = QPushButton("Extract Codes")
-        self.extract_button.clicked.connect(self.extract_codes)
+        self.extract_button.clicked.connect(self._handle_extract_button_click)
         button_layout.addWidget(self.extract_button)
 
         self.clear_button = QPushButton("Clear")
@@ -62,8 +72,17 @@ class CodeExtractor(QMainWindow):
         button_layout.addWidget(self.next_button)
 
         self.upload_button = QPushButton("Upload Image (OCR)")
-        self.upload_button.clicked.connect(self.upload_image_and_extract)
+        self.upload_button.clicked.connect(lambda: self.upload_image_and_extract())
         button_layout.addWidget(self.upload_button)
+
+        mode_button_layout = QHBoxLayout()
+        layout.addLayout(mode_button_layout)
+
+        self.toggle_mode_button = QPushButton()
+        self.toggle_mode_button.clicked.connect(self.toggle_extract_mode)
+        mode_button_layout.addWidget(self.toggle_mode_button)
+
+        self._update_mode_indicator()
 
     def _setup_tesseract(self):
         if getattr(sys, 'frozen', False):
@@ -140,16 +159,33 @@ class CodeExtractor(QMainWindow):
                 codes.append(f"{normalized[0:4]} {normalized[4:8]} {normalized[8:12]} {normalized[12:16]}")
         return list(dict.fromkeys(codes))
 
+    def _write_codes(self, codes, overwrite=True):
+        mode = "w" if overwrite else "a"
+        with open("codes.txt", mode, encoding="utf-8") as file:
+            for code in codes:
+                file.write(code.strip() + "\n")
+
+    def _get_bool_config(self, key, default):
+        value = self.config.get(key)
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in ("true", "1", "yes", "on"):
+                return True
+            if normalized in ("false", "0", "no", "off"):
+                return False
+        return bool(value)
+
     def extract_codes(self, overwrite=True):
         # Manual text input: allow lowercase by converting first
         text = self.input_box.toPlainText().upper()
         codes = self._extract_codes_from_text(text)
 
         if codes:
-            mode = "w" if overwrite else "a"
-            with open("codes.txt", mode) as file:
-                for code in codes:
-                    file.write(code.strip() + "\n")
+            self._write_codes(codes, overwrite=overwrite)
 
             result = "\n".join(codes)
             from dialog import message_box, ICON_INFORMATION
@@ -158,7 +194,10 @@ class CodeExtractor(QMainWindow):
             from dialog import message_box, ICON_EXCLAMATION
             message_box("No valid codes were found in the text.", icon=ICON_EXCLAMATION)
 
-    def upload_image_and_extract(self):
+    def upload_image_and_extract(self, overwrite=None):
+        if overwrite is None:
+            overwrite = self.ocr_overwrite_default
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select image for OCR",
@@ -191,9 +230,7 @@ class CodeExtractor(QMainWindow):
                 self.input_box.setPlainText("No codes found in any rotation.")
 
             if all_codes:
-                with open("codes.txt", "w") as file:
-                    for code in all_codes:
-                        file.write(code.strip() + "\n")
+                self._write_codes(all_codes, overwrite=overwrite)
                 from dialog import message_box, ICON_INFORMATION
                 message_box("Codes extracted and saved:\n" + "\n".join(all_codes), icon=ICON_INFORMATION)
             else:
@@ -205,6 +242,26 @@ class CodeExtractor(QMainWindow):
 
     def clear_text(self):
         self.input_box.clear()
+
+    def _update_mode_indicator(self):
+        mode_name = "Overwrite" if self.manual_overwrite else "Append"
+        first_click_hint = " (First click switches to append)" if self._first_extract_click_pending else ""
+        self.mode_label.setText(f"Manual Extract Mode: {mode_name}{first_click_hint}")
+        next_mode = "Append" if self.manual_overwrite else "Overwrite"
+        self.toggle_mode_button.setText(f"Switch to {next_mode}")
+
+    def toggle_extract_mode(self):
+        self.manual_overwrite = not self.manual_overwrite
+        self._first_extract_click_pending = False
+        self._update_mode_indicator()
+
+    def _handle_extract_button_click(self):
+        if self._first_extract_click_pending:
+            self.manual_overwrite = False
+            self._first_extract_click_pending = False
+            self._update_mode_indicator()
+        self.extract_codes(overwrite=self.manual_overwrite)
+
 
 def run_codes():
     app = QApplication.instance()
