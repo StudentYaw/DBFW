@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QApplication, QMessageBox, QMainWindow
-from PyQt5.QtGui import QIcon
+from PySide6.QtWidgets import QApplication, QMessageBox, QMainWindow
+from PySide6.QtGui import QIcon
 from pathlib import Path
 import sys
 
@@ -14,22 +14,22 @@ else:
 LOGO = RESOURCES / 'logo.ico'
 
 # Icons
-ICON_STOP = QMessageBox.Critical
-ICON_EXCLAMATION = QMessageBox.Warning
-ICON_INFORMATION = QMessageBox.Information
+ICON_STOP = QMessageBox.Icon.Critical
+ICON_EXCLAMATION = QMessageBox.Icon.Warning
+ICON_INFORMATION = QMessageBox.Icon.Information
 
 # Styles
-STYLE_OK = QMessageBox.Ok
-STYLE_OKCANCEL = QMessageBox.Ok | QMessageBox.Cancel
-STYLE_Q = QMessageBox.Yes | QMessageBox.No
+STYLE_OK = QMessageBox.StandardButton.Ok
+STYLE_OKCANCEL = QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+STYLE_Q = QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
 
 # Return Values
-IDOK = 1
-IDCANCEL = 2
-IDYES = 3
-IDNO = 4
+IDOK = QMessageBox.StandardButton.Ok.value
+IDCANCEL = QMessageBox.StandardButton.Cancel.value
+IDYES = QMessageBox.StandardButton.Yes.value
+IDNO = QMessageBox.StandardButton.No.value
 
-def message_box(text, icon=ICON_INFORMATION, style=STYLE_OK, title='DBSFW Code Enjector') -> int:
+def message_box(text, icon=ICON_INFORMATION, style=STYLE_OK, title='DBSFW Code Injector') -> int:
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
@@ -51,22 +51,15 @@ def message_box(text, icon=ICON_INFORMATION, style=STYLE_OK, title='DBSFW Code E
     
     # Set default button for specific styles
     if style == STYLE_OKCANCEL:
-        msg_box.setDefaultButton(QMessageBox.Cancel)
+        msg_box.setDefaultButton(QMessageBox.StandardButton.Cancel)
     elif style == STYLE_Q:
-        msg_box.setDefaultButton(QMessageBox.No)
-    
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+
     # Execute the message box and wait for user action
-    result = msg_box.exec_()
+    result = msg_box.exec()
 
     # Return corresponding result based on the button clicked
-    if result == QMessageBox.Ok:
-        return IDOK
-    elif result == QMessageBox.Cancel:
-        return IDCANCEL
-    elif result == QMessageBox.Yes:
-        return IDYES
-    elif result == QMessageBox.No:
-        return IDNO
+    return result
 
 class CustomException(Exception):
     def __init__(self, err, icon=ICON_STOP):

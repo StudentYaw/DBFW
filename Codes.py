@@ -1,5 +1,6 @@
-import tkinter as tk
-from tkinter import messagebox, scrolledtext
+from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QPushButton, QWidget
+from PySide6.QtGui import QIcon, QFont
+from PySide6.QtCore import Qt
 import re
 from pathlib import Path
 import sys
@@ -16,122 +17,91 @@ else:
 LOGO = RESOURCES / 'logo.ico'
 
 
-# Global variable to track whether to append or overwrite
-append_mode = False
-input_box = None  # Declare input_box at the module level
+class CodeExtractor(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Code Extractor")
+        self.setGeometry(100, 100, 600, 400)
+        self.setWindowIcon(QIcon(str(LOGO)))
 
-# Function to extract codes from the input text
-def extract_codes(overwrite=True):
-    global append_mode
-    text = input_box.get("1.0", tk.END)  # Get all text from the input box
-    pattern = r"\b[A-Z0-9]{4} [A-Z0-9]{4} [A-Z0-9]{4} [A-Z0-9]{4}\b"  # Code pattern
-    codes = re.findall(pattern, text)
+        # Central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
 
-    if codes:
-        # Determine file mode based on whether to append or overwrite
-        mode = "w" if overwrite else "a"
-        with open("codes.txt", mode) as file:
-            for code in codes:
-                file.write(code.strip() + "\n")
+        # Header
+        header = QLabel("Paste your text below and extract codes")
+        header.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(header)
 
-        result = "\n".join(codes)
-        messagebox.showinfo("Extracted Codes", f"Codes extracted and saved:\n{result}")
-    else:
-        messagebox.showwarning("No Codes Found", "No valid codes were found in the text.")
+        # Text edit
+        self.input_box = QTextEdit()
+        self.input_box.setFont(QFont("Arial", 12))
+        layout.addWidget(self.input_box)
 
-# Function to handle the initial extraction
-def initial_extract():
-    extract_codes(overwrite=True)
+        # Button layout
+        button_layout = QHBoxLayout()
+        layout.addLayout(button_layout)
 
-# Function to handle appending codes
-def append_extract():
-    global append_mode
-    append_mode = True
-    extract_codes(overwrite=False)
+        # Buttons
+        self.extract_button = QPushButton("Extract Codes")
+        self.extract_button.clicked.connect(self.extract_codes)
+        button_layout.addWidget(self.extract_button)
 
-# Function to clear the text box
-def clear_text():
-    input_box.delete("1.0", tk.END)
+        self.clear_button = QPushButton("Clear")
+        self.clear_button.clicked.connect(self.clear_text)
+        button_layout.addWidget(self.clear_button)
 
-# Function to center the window on the screen
-def center_window(root):
-    root.update_idletasks()  # Update the window's size and geometry
-    width = root.winfo_width()
-    height = root.winfo_height()
+        self.next_button = QPushButton("Next")
+        self.next_button.clicked.connect(self.close)
+        button_layout.addWidget(self.next_button)
 
-    # Calculate the x and y coordinates to center the window
-    screen_width = root.winfo_screenwidth()
-    screen_height = root.winfo_screenheight()
-    x = (screen_width // 2) - (width // 2)
-    y = (screen_height // 2) - (height // 2)
+    def extract_codes(self, overwrite=True):
+        text = self.input_box.toPlainText()
 
-    root.geometry(f"{width}x{height}+{x}+{y}")
+        # Text in Großbuchstaben umwandeln, damit Groß-/Kleinschreibung egal ist
+        text = text.upper()
 
-# Function to create and run the GUI
+        # Erkenne Codes mit Leerzeichen: XXXX XXXX XXXX XXXX
+        pattern_spaces = r"\b([A-Z0-9]{4}) ([A-Z0-9]{4}) ([A-Z0-9]{4}) ([A-Z0-9]{4})\b"
+        # Erkenne Codes ohne Leerzeichen: XXXXXXXXXXXXXXXX (16 Zeichen)
+        pattern_nospaces = r"\b([A-Z0-9]{4})([A-Z0-9]{4})([A-Z0-9]{4})([A-Z0-9]{4})\b"
+
+        codes = []
+        for match in re.finditer(pattern_spaces, text):
+            code = f"{match.group(1)} {match.group(2)} {match.group(3)} {match.group(4)}"
+            codes.append(code)
+
+        # Nur suchen wenn noch keine gefunden (damit keine Doppelungen)
+        if not codes:
+            for match in re.finditer(pattern_nospaces, text):
+                code = f"{match.group(1)} {match.group(2)} {match.group(3)} {match.group(4)}"
+                codes.append(code)
+
+        # Duplikate entfernen
+        codes = list(dict.fromkeys(codes))
+
+        if codes:
+            mode = "w" if overwrite else "a"
+            with open("codes.txt", mode) as file:
+                for code in codes:
+                    file.write(code.strip() + "\n")
+
+            result = "\n".join(codes)
+            from dialog import message_box, ICON_INFORMATION
+            message_box(f"Codes extracted and saved:\n{result}", icon=ICON_INFORMATION)
+        else:
+            from dialog import message_box, ICON_EXCLAMATION
+            message_box("No valid codes were found in the text.", icon=ICON_EXCLAMATION)
+
+    def clear_text(self):
+        self.input_box.clear()
+
 def run_codes():
-    global input_box  # Declare input_box as global to access in extract_codes
-    
-    # Create the main window
-    root = tk.Tk()
-    root.title("Code Extractor")
-    root.geometry("600x400")  # Initial size
-    root.configure(bg="#e9ecef")  # Light background color
-
-    # Set the icon for the window
-    root.iconbitmap(LOGO)
-
-    # Center the window
-    center_window(root)
-
-    # Header label
-    header = tk.Label(
-        root, text="Paste your text below and extract codes", 
-        font=("Arial", 16, "bold"), bg="#e9ecef", fg="#333333", pady=10
-    )
-    header.pack()
-
-    # Scrollable text box for input
-    input_box = scrolledtext.ScrolledText(root, wrap=tk.WORD, font=("Arial", 12), height=10, bg="#ffffff", fg="#000000", borderwidth=2, relief="groove")
-    input_box.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
-
-    # Frame for buttons
-    button_frame = tk.Frame(root, bg="#e9ecef")
-    button_frame.pack(pady=15)
-
-    # Function to change button colors on hover
-    def on_enter(e):
-        e.widget['background'] = '#007bff'
-
-    def on_leave(e):
-        e.widget['background'] = '#0056b3'
-
-    # Function to create a modern button
-    def create_button(text, command):
-        button = tk.Button(
-            button_frame, text=text, command=command, 
-            font=("Arial", 12, "bold"), bg="#0056b3", fg="white", padx=20, pady=10,
-            borderwidth=0, relief="flat"
-        )
-        button.bind("<Enter>", on_enter)
-        button.bind("<Leave>", on_leave)
-        button.pack(side=tk.LEFT, padx=10)  # Use pack for modern layout
-        return button
-    
-    def on_closing():
-        root.quit()  # Stop the main loop
-        root.destroy()  # Close the window
-
-    # Extract button
-    create_button("Extract Codes", initial_extract)
-
-    # Clear button
-    create_button("Clear", clear_text)
-
-    # Append button
-    create_button("Next", on_closing)
-        
-    # Bind the window close event
-    root.protocol("WM_DELETE_WINDOW", on_closing)
-
-    # Start the main event loop
-    root.mainloop()
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(sys.argv)
+    window = CodeExtractor()
+    window.show()
+    app.exec()
