@@ -199,3 +199,35 @@ def test_extract_codes_allows_single_compact_manual_input(extractor):
     extractor.extract_codes(overwrite=True)
 
     assert calls == ["ABCD 1234 EFGH 5678"]
+
+
+def test_extract_codes_rejects_wordy_compact_false_positives(extractor):
+    text = "1909DRAGBALLCARD WORKCARDGAMEF809 ABCD1234EFGH5678"
+    codes = extractor._extract_codes_from_text(text, allow_compact=True, min_digits=1)
+    assert codes == ["ABCD 1234 EFGH 5678"]
+
+
+def test_extract_codes_compact_manual_input_rejects_wordy_string(extractor):
+    extractor.input_box.setPlainText("WORKCARDGAMEF809")
+    calls = []
+
+    def fake_write_codes(codes, overwrite=True):
+        calls.extend(codes)
+
+    from dialog import IDOK
+
+    def fake_message_box(*args, **kwargs):
+        return IDOK
+
+    extractor._write_codes = fake_write_codes
+    dialog.message_box = fake_message_box
+
+    extractor.extract_codes(overwrite=True)
+
+    assert calls == []
+
+
+def test_extract_codes_accepts_two_digit_grouped_codes(extractor):
+    text = "GEXD NB4Z JCPJ BHZ5 WJFR NS4Z SQQD JHY2"
+    codes = extractor._extract_codes_from_text(text, allow_compact=False, min_digits=2)
+    assert codes == ["GEXD NB4Z JCPJ BHZ5", "WJFR NS4Z SQQD JHY2"]

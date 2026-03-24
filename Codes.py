@@ -143,7 +143,7 @@ class CodeExtractor(QMainWindow):
             best_text = pytesseract.image_to_string(variants[1], config=r'--oem 3 --psm 3 -l eng')
         return best_text
 
-    def _extract_codes_from_text(self, text, allow_compact=False, min_digits=3):
+    def _extract_codes_from_text(self, text, allow_compact=False, min_digits=2):
         text = (text or "").upper()
 
         # Prefer explicit 4x4 grouping in OCR-like text to avoid matching long words.
@@ -163,9 +163,16 @@ class CodeExtractor(QMainWindow):
             normalized = ''.join(groups)
             if len(normalized) != 16:
                 continue
+            digit_count = sum(c.isdigit() for c in normalized)
             # Fragments like FB09CARDDATA often have very few digits.
-            if sum(c.isdigit() for c in normalized) < min_digits:
+            if digit_count < min_digits:
                 continue
+
+            # Wortartige OCR-Fragmente vermeiden: Ziffern sollten in mehreren 4er-Gruppen vorkommen.
+            groups_with_digits = sum(any(ch.isdigit() for ch in group) for group in groups)
+            if groups_with_digits < 2:
+                continue
+
             if any(c.isdigit() for c in normalized) and any(c.isalpha() for c in normalized):
                 codes.append(f"{normalized[0:4]} {normalized[4:8]} {normalized[8:12]} {normalized[12:16]}")
         return list(dict.fromkeys(codes))
@@ -197,7 +204,7 @@ class CodeExtractor(QMainWindow):
     def extract_codes(self, overwrite=True):
         # Manual text input: allow lowercase by converting first
         text = self.input_box.toPlainText().upper()
-        codes = self._extract_codes_from_text(text, allow_compact=False, min_digits=3)
+        codes = self._extract_codes_from_text(text, allow_compact=False, min_digits=2)
 
         # Convenience fallback for users who paste one compact code without spaces.
         if not codes and self._looks_like_single_compact_code_input(text):
@@ -235,7 +242,7 @@ class CodeExtractor(QMainWindow):
             for angle in (0, 90):
                 rotated = original.rotate(angle, expand=True)
                 ocr_text = self._ocr_image(rotated)
-                found = self._extract_codes_from_text(ocr_text, allow_compact=False, min_digits=3)
+                found = self._extract_codes_from_text(ocr_text, allow_compact=False, min_digits=2)
                 if found:
                     best_texts.append(f"[{angle}°]\n{ocr_text.strip()}")
                     for code in found:
