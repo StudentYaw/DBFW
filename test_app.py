@@ -68,7 +68,7 @@ def test_upload_image_and_extract_appends_by_default(extractor, monkeypatch, tmp
     image = Image.new("RGB", (10, 10), color="white")
     monkeypatch.setattr("Codes.QFileDialog.getOpenFileName", lambda *args, **kwargs: ("fake.png", ""))
     monkeypatch.setattr("Codes.Image.open", lambda *args, **kwargs: image)
-    monkeypatch.setattr(extractor, "_ocr_image", lambda rotated: "ABCD1234EFGH5678")
+    monkeypatch.setattr(extractor, "_ocr_image", lambda rotated: "ABCD 1234 EFGH 5678")
 
     extractor.upload_image_and_extract()
 
@@ -86,7 +86,7 @@ def test_upload_image_and_extract_can_overwrite(extractor, monkeypatch, tmp_path
     image = Image.new("RGB", (10, 10), color="white")
     monkeypatch.setattr("Codes.QFileDialog.getOpenFileName", lambda *args, **kwargs: ("fake.png", ""))
     monkeypatch.setattr("Codes.Image.open", lambda *args, **kwargs: image)
-    monkeypatch.setattr(extractor, "_ocr_image", lambda rotated: "WXYZ9876IJKL5432")
+    monkeypatch.setattr(extractor, "_ocr_image", lambda rotated: "WXYZ 9876 IJKL 5432")
 
     extractor.upload_image_and_extract(overwrite=True)
 
@@ -98,7 +98,7 @@ def test_manual_mode_indicator_starts_in_overwrite_with_first_click_hint(extract
     assert extractor.manual_overwrite is True
     assert extractor._first_extract_click_pending is True
     assert "Overwrite" in extractor.mode_label.text()
-    assert "erster Klick" in extractor.mode_label.text()
+    assert "First click" in extractor.mode_label.text()
     assert extractor.toggle_mode_button.text() == "Switch to Append"
 
 
@@ -158,7 +158,7 @@ def test_upload_image_uses_ocr_overwrite_default_when_no_parameter(qapp, monkeyp
         image = Image.new("RGB", (10, 10), color="white")
         monkeypatch.setattr("Codes.QFileDialog.getOpenFileName", lambda *args, **kwargs: ("fake.png", ""))
         monkeypatch.setattr("Codes.Image.open", lambda *args, **kwargs: image)
-        monkeypatch.setattr(window, "_ocr_image", lambda rotated: "ABCD1234EFGH5678")
+        monkeypatch.setattr(window, "_ocr_image", lambda rotated: "ABCD 1234 EFGH 5678")
 
         write_overwrite_flags = []
 
@@ -173,3 +173,29 @@ def test_upload_image_uses_ocr_overwrite_default_when_no_parameter(qapp, monkeyp
         assert write_overwrite_flags == [True]
     finally:
         window.close()
+
+
+def test_extract_codes_rejects_ocr_fragments_and_keeps_valid_groups(extractor):
+    text = "FTERFB09CARDDATA IONWORLDFB09REDE Q7NL HU2Z CYMU UMZ5"
+    codes = extractor._extract_codes_from_text(text)
+    assert codes == ["Q7NL HU2Z CYMU UMZ5"]
+
+
+def test_extract_codes_allows_single_compact_manual_input(extractor):
+    extractor.input_box.setPlainText("abcd1234efgh5678")
+    calls = []
+
+    def fake_write_codes(codes, overwrite=True):
+        calls.extend(codes)
+
+    from dialog import IDOK
+
+    def fake_message_box(*args, **kwargs):
+        return IDOK
+
+    extractor._write_codes = fake_write_codes
+    dialog.message_box = fake_message_box
+
+    extractor.extract_codes(overwrite=True)
+
+    assert calls == ["ABCD 1234 EFGH 5678"]
