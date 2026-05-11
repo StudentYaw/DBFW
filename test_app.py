@@ -2,7 +2,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 from PySide6.QtWidgets import QApplication
 
 import dialog
@@ -231,3 +231,51 @@ def test_extract_codes_accepts_two_digit_grouped_codes(extractor):
     text = "GEXD NB4Z JCPJ BHZ5 WJFR NS4Z SQQD JHY2"
     codes = extractor._extract_codes_from_text(text, allow_compact=False, min_digits=2)
     assert codes == ["GEXD NB4Z JCPJ BHZ5", "WJFR NS4Z SQQD JHY2"]
+
+
+def test_detect_card_regions_finds_grid_like_cards(extractor):
+    image = Image.new("RGB", (600, 420), color="#202020")
+    draw = ImageDraw.Draw(image)
+    for box in (
+        (20, 20, 120, 180),
+        (140, 20, 240, 180),
+        (20, 210, 120, 390),
+        (140, 210, 240, 390),
+    ):
+        draw.rectangle(box, fill="white")
+
+    regions = extractor._detect_card_regions(image)
+
+    assert len(regions) == 4
+    assert regions[0][0] < regions[0][2]
+    assert regions[0][1] < regions[0][3]
+
+
+def test_upload_image_and_extract_uses_segmented_card_ocr_without_mixing(extractor, monkeypatch, tmp_path, message_box_calls):
+    monkeypatch.chdir(tmp_path)
+
+    image = Image.new("RGB", (600, 420), color="white")
+    monkeypatch.setattr("Codes.QFileDialog.getOpenFileName", lambda *args, **kwargs: ("fake.png", ""))
+    monkeypatch.setattr("Codes.Image.open", lambda *args, **kwargs: image)
+
+    def fake_ocr_cards_in_image(rotated):
+        if rotated.width == 600:
+            return (
+                "Use this code to unlock your in-game reward!\nABCD 1234 EFGH 5678\n\n"
+                "Use this code to unlock your in-game reward!\nWXYZ 9876 IJKL 5432",
+                ["ABCD 1234 EFGH 5678", "WXYZ 9876 IJKL 5432"],
+            )
+        return ("", [])
+
+    monkeypatch.setattr(extractor, "_ocr_cards_in_image", fake_ocr_cards_in_image)
+    monkeypatch.setattr(extractor, "_ocr_image", lambda rotated: "NOISY PAGE OCR")
+
+    extractor.upload_image_and_extract(overwrite=True)
+
+    assert (tmp_path / "codes.txt").read_text(encoding="utf-8") == (
+        "ABCD 1234 EFGH 5678\n"
+        "WXYZ 9876 IJKL 5432\n"
+    )
+    assert "ABCD 1234 EFGH 5678" in extractor.input_box.toPlainText()
+    assert "WXYZ 9876 IJKL 5432" in extractor.input_box.toPlainText()
+    assert len(message_box_calls) == 1
