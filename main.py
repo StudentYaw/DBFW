@@ -87,16 +87,30 @@ class CodeInjector:
         pyautogui.write(normalized, interval=float(interval))
 
     def run_injection(self):
-        # Get window
+        window = self._get_game_window()
+        scaling_factor = self._compute_scaling_factor(window)
+        self._prepare_scaled_images(scaling_factor)
+
+        while self.not_done:
+            codes = self._load_and_validate_codes()
+            self._confirm_start(codes)
+            pyautogui.sleep(self.config.get('sleep'))
+
+            errors, codes = self._process_codes(codes)
+            self._write_remaining_codes(codes)
+            self._report_results(errors)
+
+    def _get_game_window(self):
         windows = gw.getWindowsWithTitle('DBSCGFW')
         if not windows:
             raise CustomException('Game is not opened. Make sure the game is opened!')
-        window = windows[0]
-        width, height = window.width, window.height
-        current_resolution = self.resolve_to_standard_resolution(width, height)
-        scaling_factor = self.get_scaling_factor(self.config.get('original_resolution'), current_resolution)
+        return windows[0]
 
-        # Scale images
+    def _compute_scaling_factor(self, window):
+        current_resolution = self.resolve_to_standard_resolution(window.width, window.height)
+        return self.get_scaling_factor(self.config.get('original_resolution'), current_resolution)
+
+    def _prepare_scaled_images(self, scaling_factor):
         image_paths = {
             'textbox': self.resources / 'textbox.png',
             'confirm': self.resources / 'confirm.png',
@@ -108,93 +122,103 @@ class CodeInjector:
         for key, path in image_paths.items():
             self.scaled_images[key] = self.scale_image(path, scaling_factor)
 
-        while self.not_done:
-            run_codes()
-            try:
-                with open(self.config.get('codes_file')) as f:
-                    codes = [''.join(line.strip().split()).upper() for line in f if line.strip()]
-                    if not codes:
-                        raise CustomException(f'{self.config.get("codes_file")} is empty')
-                    if not all(len(code) == self.config.get('code_length') for code in codes):
-                        invalid = [c for c in codes if len(c) != self.config.get('code_length')]
-                        raise CustomException(f'Ungültige Codes gefunden:\n' + '\n'.join(invalid))
-            except FileNotFoundError:
-                raise CustomException(f'{self.config.get("codes_file")} not found')
+    def _load_and_validate_codes(self):
+        run_codes()
+        try:
+            with open(self.config.get('codes_file')) as f:
+                codes = [''.join(line.strip().split()).upper() for line in f if line.strip()]
+                if not codes:
+                    raise CustomException(f'{self.config.get("codes_file")} is empty')
+                if not all(len(code) == self.config.get('code_length') for code in codes):
+                    invalid = [c for c in codes if len(c) != self.config.get('code_length')]
+                    raise CustomException('Ungültige Codes gefunden:\n' + '\n'.join(invalid))
+        except FileNotFoundError:
+            raise CustomException(f'{self.config.get("codes_file")} not found')
+        return codes
 
-            approx_time = int(1 + len(codes) * (self.config.get('sleep') + self.config.get('sleep_confirm') + self.config.get('code_length') * self.config.get('write_interval')) / 60)
-            suffix = 'minute' if approx_time == 1 else 'minutes'
-            if message_box(f'This process will take approximately {approx_time} {suffix}. Continue?', style=STYLE_OKCANCEL) == IDCANCEL:
-                sys.exit()
+    def _confirm_start(self, codes):
+        approx_time = int(1 + len(codes) * (self.config.get('sleep') + self.config.get('sleep_confirm') + self.config.get('code_length') * self.config.get('write_interval')) / 60)
+        suffix = 'minute' if approx_time == 1 else 'minutes'
+        if message_box(f'This process will take approximately {approx_time} {suffix}. Continue?', style=STYLE_OKCANCEL) == IDCANCEL:
+            sys.exit()
 
-            pyautogui.sleep(self.config.get('sleep'))
+    def _process_codes(self, codes):
+        errors = False
+        while codes:
+            code = codes.pop(0)
+            self._submit_code(code)
 
-            errors = False
-            while codes:
-                code = codes.pop(0)
-                try:
-                    res = pyautogui.locateOnScreen(str(self.scaled_images['textbox']), confidence=self.config.get('confidence'))
-                    location = (res.left + res.width * 0.1, res.top + res.height * 0.5)
-                    pyautogui.click(*location)
-                    pyautogui.click(*location)
-                    pyautogui.sleep(self.config.get('sleep'))
-                    self._enter_code(code)
-                except pyautogui.ImageNotFoundException as e:
-                    logging.error(f'Codes section not opened: {e}')
-                    raise CustomException('Codes section is not opened')
-
-                # Confirm
-                try:
-                    res = pyautogui.locateOnScreen(str(self.scaled_images['confirm']), confidence=self.config.get('confidence'))
-                    pyautogui.click(pyautogui.center(res))
-                    pyautogui.sleep(self.config.get('sleep_confirm'))
-                except pyautogui.ImageNotFoundException as e:
-                    logging.error(f'Cannot press confirm: {e}')
-                    raise CustomException('Cannot press confirm')
-
-                # Check success via OCR
-                result = self.ocr_check_text()
-                logging.info(f'OCR result for code {code}: {result}')
-                if result == 'success':
-                    self.counter_suc += 1
-                else:
-                    errors = True
-                    if result == 'alreadyused':
-                        with open(self.config.get('codes_err_file'), 'a') as f:
-                            f.write(f'{code} Already used!\n')
-                        self.counter_alr += 1
-                    elif result == 'invalid':
-                        with open(self.config.get('codes_err_file'), 'a') as f:
-                            f.write(f'{code} Invalid Code!\n')
-                        self.counter_err += 1
-                    else:
-                        with open(self.config.get('codes_err_file'), 'a') as f:
-                            f.write(f'{code} Unknown Issue!\n')
-                        self.counter_unk += 1
-                    if self.counter_err + self.counter_unk >= self.config.get('max_errors'):
-                        message_box('Exceeded the maximum number of fails!', icon=ICON_EXCLAMATION)
-                        break
-
-                # Close
-                try:
-                    res = pyautogui.locateOnScreen(str(self.scaled_images['close']), confidence=self.config.get('confidence'))
-                    pyautogui.click(pyautogui.center(res))
-                except pyautogui.ImageNotFoundException as e:
-                    logging.error(f'Cannot press close: {e}')
-                    raise CustomException('Cannot press close')
-
-            with open(self.config.get('codes_file'), 'w') as file:
-                for code in codes:
-                    file.write(f'{code}\n')
-
-            if errors:
-                if message_box(
-                    f'Some errors occurred!\nThey were {self.counter_err} invalid codes, {self.counter_alr} codes that were already used, and {self.counter_suc} successful ones.\nThe codes have been written to {self.config.get("codes_err_file")}\nContinue?',
-                    icon=ICON_EXCLAMATION, style=STYLE_Q
-                ) == IDNO:
-                    self.not_done = False
+            result = self.ocr_check_text()
+            logging.info(f'OCR result for code {code}: {result}')
+            if result == 'success':
+                self.counter_suc += 1
             else:
-                if message_box(f'Done! I had {self.counter_suc} successful codes\nContinue?', style=STYLE_Q) == IDNO:
-                    self.not_done = False
+                errors = True
+                self._record_error(code, result)
+                if self.counter_err + self.counter_unk >= self.config.get('max_errors'):
+                    message_box('Exceeded the maximum number of fails!', icon=ICON_EXCLAMATION)
+                    break
+
+            self._close_result_dialog()
+        return errors, codes
+
+    def _submit_code(self, code):
+        try:
+            res = pyautogui.locateOnScreen(str(self.scaled_images['textbox']), confidence=self.config.get('confidence'))
+            location = (res.left + res.width * 0.1, res.top + res.height * 0.5)
+            pyautogui.click(*location)
+            pyautogui.click(*location)
+            pyautogui.sleep(self.config.get('sleep'))
+            self._enter_code(code)
+        except pyautogui.ImageNotFoundException as e:
+            logging.error(f'Codes section not opened: {e}')
+            raise CustomException('Codes section is not opened')
+
+        try:
+            res = pyautogui.locateOnScreen(str(self.scaled_images['confirm']), confidence=self.config.get('confidence'))
+            pyautogui.click(pyautogui.center(res))
+            pyautogui.sleep(self.config.get('sleep_confirm'))
+        except pyautogui.ImageNotFoundException as e:
+            logging.error(f'Cannot press confirm: {e}')
+            raise CustomException('Cannot press confirm')
+
+    def _record_error(self, code, result):
+        if result == 'alreadyused':
+            with open(self.config.get('codes_err_file'), 'a') as f:
+                f.write(f'{code} Already used!\n')
+            self.counter_alr += 1
+        elif result == 'invalid':
+            with open(self.config.get('codes_err_file'), 'a') as f:
+                f.write(f'{code} Invalid Code!\n')
+            self.counter_err += 1
+        else:
+            with open(self.config.get('codes_err_file'), 'a') as f:
+                f.write(f'{code} Unknown Issue!\n')
+            self.counter_unk += 1
+
+    def _close_result_dialog(self):
+        try:
+            res = pyautogui.locateOnScreen(str(self.scaled_images['close']), confidence=self.config.get('confidence'))
+            pyautogui.click(pyautogui.center(res))
+        except pyautogui.ImageNotFoundException as e:
+            logging.error(f'Cannot press close: {e}')
+            raise CustomException('Cannot press close')
+
+    def _write_remaining_codes(self, codes):
+        with open(self.config.get('codes_file'), 'w') as file:
+            for code in codes:
+                file.write(f'{code}\n')
+
+    def _report_results(self, errors):
+        if errors:
+            if message_box(
+                f'Some errors occurred!\nThey were {self.counter_err} invalid codes, {self.counter_alr} codes that were already used, and {self.counter_suc} successful ones.\nThe codes have been written to {self.config.get("codes_err_file")}\nContinue?',
+                icon=ICON_EXCLAMATION, style=STYLE_Q
+            ) == IDNO:
+                self.not_done = False
+        else:
+            if message_box(f'Done! I had {self.counter_suc} successful codes\nContinue?', style=STYLE_Q) == IDNO:
+                self.not_done = False
 
     def _setup_tesseract(self):
         configure_tesseract()
