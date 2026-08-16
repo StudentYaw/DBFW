@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import logging
 import sys
 import os
 from pathlib import Path
+from typing import Any
 import pyautogui
 import pygetwindow as gw
 from PIL import Image, ImageGrab, ImageEnhance, ImageFilter
@@ -15,10 +18,10 @@ import pytesseract
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class CodeInjector:
-    def __init__(self):
+    def __init__(self) -> None:
         self.config = ConfigManager()
         self.resources = self.get_resources_path()
-        self.scaled_images = {}
+        self.scaled_images: dict[str, Path] = {}
         self.counter_suc = 0
         self.counter_err = 0
         self.counter_alr = 0
@@ -26,18 +29,20 @@ class CodeInjector:
         self.not_done = True
         self._setup_tesseract()  # Einmalig beim Start
 
-    def get_resources_path(self):
+    def get_resources_path(self) -> Path:
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             return Path(sys._MEIPASS) / 'res'
         else:
             return Path(__file__).parent / 'res'
 
-    def get_scaling_factor(self, original_resolution, current_resolution):
+    def get_scaling_factor(
+        self, original_resolution: tuple[float, float], current_resolution: tuple[float, float]
+    ) -> float:
         width_factor = current_resolution[0] / original_resolution[0]
         height_factor = current_resolution[1] / original_resolution[1]
         return (width_factor + height_factor) / 2
 
-    def scale_image(self, image_path, scaling_factor):
+    def scale_image(self, image_path: Path, scaling_factor: float) -> Path:
         scaled_path = self.resources / (image_path.stem + '_scaled.png')
         # Immer neu skalieren um sicherzustellen, dass der Skalierungsfaktor aktuell ist
         image = Image.open(image_path)
@@ -48,7 +53,7 @@ class CodeInjector:
         logging.info(f"Scaled {image_path.name}: {image.width}x{image.height} -> {new_width}x{new_height}")
         return scaled_path
 
-    def locate_image_on_screen(self, image_path, scaling_factor):
+    def locate_image_on_screen(self, image_path: Path, scaling_factor: float) -> Any | None:
         scaled_path = self.scale_image(image_path, scaling_factor)
         try:
             position = pyautogui.locateOnScreen(str(scaled_path), confidence=self.config.get('confidence'))
@@ -58,7 +63,9 @@ class CodeInjector:
             logging.warning(f"Image not found: {scaled_path}")
             return None
 
-    def locate_image_on_screen_with_retry(self, image_path, scaling_factor, retries=3, delay=1):
+    def locate_image_on_screen_with_retry(
+        self, image_path: Path, scaling_factor: float, retries: int = 3, delay: float = 1
+    ) -> Any | None:
         for attempt in range(retries):
             position = self.locate_image_on_screen(image_path, scaling_factor)
             if position:
@@ -66,7 +73,7 @@ class CodeInjector:
             pyautogui.sleep(delay)
         return None
 
-    def resolve_to_standard_resolution(self, width, height):
+    def resolve_to_standard_resolution(self, width: float, height: float) -> tuple[float, float]:
         standard_resolutions = [
             (1280, 720), (1920, 1080), (2560, 1440), (3840, 2160)
         ]
@@ -76,7 +83,7 @@ class CodeInjector:
                 return (std_width, std_height)
         return (width, height)  # Fallback to current
 
-    def _enter_code(self, code):
+    def _enter_code(self, code: str) -> None:
         # Type exactly the normalized code string to avoid clipboard latency.
         normalized = ''.join(code.split()).upper()
         pyautogui.hotkey('ctrl', 'a')
@@ -86,7 +93,7 @@ class CodeInjector:
             interval = 0.05
         pyautogui.write(normalized, interval=float(interval))
 
-    def run_injection(self):
+    def run_injection(self) -> None:
         window = self._get_game_window()
         scaling_factor = self._compute_scaling_factor(window)
         self._prepare_scaled_images(scaling_factor)
@@ -100,17 +107,17 @@ class CodeInjector:
             self._write_remaining_codes(codes)
             self._report_results(errors)
 
-    def _get_game_window(self):
+    def _get_game_window(self) -> Any:
         windows = gw.getWindowsWithTitle('DBSCGFW')
         if not windows:
             raise CustomException('Game is not opened. Make sure the game is opened!')
         return windows[0]
 
-    def _compute_scaling_factor(self, window):
+    def _compute_scaling_factor(self, window: Any) -> float:
         current_resolution = self.resolve_to_standard_resolution(window.width, window.height)
         return self.get_scaling_factor(self.config.get('original_resolution'), current_resolution)
 
-    def _prepare_scaled_images(self, scaling_factor):
+    def _prepare_scaled_images(self, scaling_factor: float) -> None:
         image_paths = {
             'textbox': self.resources / 'textbox.png',
             'confirm': self.resources / 'confirm.png',
@@ -122,7 +129,7 @@ class CodeInjector:
         for key, path in image_paths.items():
             self.scaled_images[key] = self.scale_image(path, scaling_factor)
 
-    def _load_and_validate_codes(self):
+    def _load_and_validate_codes(self) -> list[str]:
         run_codes()
         try:
             with open(self.config.get('codes_file')) as f:
@@ -136,13 +143,13 @@ class CodeInjector:
             raise CustomException(f'{self.config.get("codes_file")} not found')
         return codes
 
-    def _confirm_start(self, codes):
+    def _confirm_start(self, codes: list[str]) -> None:
         approx_time = int(1 + len(codes) * (self.config.get('sleep') + self.config.get('sleep_confirm') + self.config.get('code_length') * self.config.get('write_interval')) / 60)
         suffix = 'minute' if approx_time == 1 else 'minutes'
         if message_box(f'This process will take approximately {approx_time} {suffix}. Continue?', style=STYLE_OKCANCEL) == IDCANCEL:
             sys.exit()
 
-    def _process_codes(self, codes):
+    def _process_codes(self, codes: list[str]) -> tuple[bool, list[str]]:
         errors = False
         while codes:
             code = codes.pop(0)
@@ -162,7 +169,7 @@ class CodeInjector:
             self._close_result_dialog()
         return errors, codes
 
-    def _submit_code(self, code):
+    def _submit_code(self, code: str) -> None:
         try:
             res = pyautogui.locateOnScreen(str(self.scaled_images['textbox']), confidence=self.config.get('confidence'))
             location = (res.left + res.width * 0.1, res.top + res.height * 0.5)
@@ -182,7 +189,7 @@ class CodeInjector:
             logging.error(f'Cannot press confirm: {e}')
             raise CustomException('Cannot press confirm')
 
-    def _record_error(self, code, result):
+    def _record_error(self, code: str, result: str) -> None:
         if result == 'alreadyused':
             with open(self.config.get('codes_err_file'), 'a') as f:
                 f.write(f'{code} Already used!\n')
@@ -196,7 +203,7 @@ class CodeInjector:
                 f.write(f'{code} Unknown Issue!\n')
             self.counter_unk += 1
 
-    def _close_result_dialog(self):
+    def _close_result_dialog(self) -> None:
         try:
             res = pyautogui.locateOnScreen(str(self.scaled_images['close']), confidence=self.config.get('confidence'))
             pyautogui.click(pyautogui.center(res))
@@ -204,12 +211,12 @@ class CodeInjector:
             logging.error(f'Cannot press close: {e}')
             raise CustomException('Cannot press close')
 
-    def _write_remaining_codes(self, codes):
+    def _write_remaining_codes(self, codes: list[str]) -> None:
         with open(self.config.get('codes_file'), 'w') as file:
             for code in codes:
                 file.write(f'{code}\n')
 
-    def _report_results(self, errors):
+    def _report_results(self, errors: bool) -> None:
         if errors:
             if message_box(
                 f'Some errors occurred!\nThey were {self.counter_err} invalid codes, {self.counter_alr} codes that were already used, and {self.counter_suc} successful ones.\nThe codes have been written to {self.config.get("codes_err_file")}\nContinue?',
@@ -220,10 +227,10 @@ class CodeInjector:
             if message_box(f'Done! I had {self.counter_suc} successful codes\nContinue?', style=STYLE_Q) == IDNO:
                 self.not_done = False
 
-    def _setup_tesseract(self):
+    def _setup_tesseract(self) -> None:
         configure_tesseract()
 
-    def _preprocess_for_ocr(self, image):
+    def _preprocess_for_ocr(self, image: Image.Image) -> Image.Image:
         """
         Bereitet ein Bild für OCR vor:
         - Graustufen (weniger Rauschen)
@@ -236,7 +243,7 @@ class CodeInjector:
         image = image.filter(ImageFilter.SHARPEN)           # Schärfen
         return image
 
-    def ocr_check_text(self, region=None):
+    def ocr_check_text(self, region: tuple[int, int, int, int] | None = None) -> str:
         """
         Macht einen Screenshot und sucht per OCR nach bekannten Texten.
         region: (left, top, right, bottom) oder None für gesamten Bildschirm

@@ -1,9 +1,13 @@
-import yaml
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 # Single source of truth for defaults. config.yaml only needs to contain
 # overrides; any key missing there (or the whole file) falls back to this.
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: dict[str, Any] = {
     'codes_file': 'codes.txt',
     'codes_err_file': 'codes_with_errors.txt',
     'code_length': 16,
@@ -19,11 +23,11 @@ DEFAULT_CONFIG = {
 }
 
 class ConfigManager:
-    def __init__(self, config_file='config.yaml'):
+    def __init__(self, config_file: str | Path = 'config.yaml') -> None:
         self.config_file = Path(config_file)
-        self.config = self.load_config()
+        self.config: dict[str, Any] = self.load_config()
 
-    def load_config(self):
+    def load_config(self) -> dict[str, Any]:
         config = dict(DEFAULT_CONFIG)
         if self.config_file.exists():
             with open(self.config_file, 'r') as f:
@@ -31,5 +35,5 @@ class ConfigManager:
             config.update(loaded)
         return config
 
-    def get(self, key):
+    def get(self, key: str) -> Any:
         return self.config.get(key)

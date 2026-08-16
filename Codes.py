@@ -1,11 +1,23 @@
-from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QPushButton, QWidget, QFileDialog
-from PySide6.QtGui import QIcon, QFont
-from PySide6.QtCore import Qt
+from __future__ import annotations
+
 import re
-from pathlib import Path
 import sys
-import os
+from pathlib import Path
+
 from PIL import Image, ImageEnhance, ImageOps, ImageStat
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QIcon
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 import pytesseract
 from pytesseract import Output
 from config_manager import ConfigManager
@@ -24,7 +36,7 @@ LOGO = RESOURCES / 'logo.ico'
 
 
 class CodeExtractor(QMainWindow):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self._setup_tesseract()
         self.config = ConfigManager()
@@ -87,17 +99,17 @@ class CodeExtractor(QMainWindow):
 
         self._update_mode_indicator()
 
-    def _setup_tesseract(self):
+    def _setup_tesseract(self) -> None:
         configure_tesseract()
 
-    def _preprocess_for_ocr(self, image):
+    def _preprocess_for_ocr(self, image: Image.Image) -> Image.Image:
         """Leichte Vorverarbeitung für Screenshots (wird in ocr_check_text verwendet)."""
         image = image.convert('L')
         image = ImageEnhance.Contrast(image).enhance(2.5)
         image = ImageEnhance.Sharpness(image).enhance(2.0)
         return image
 
-    def _preprocess_photo(self, image):
+    def _preprocess_photo(self, image: Image.Image) -> Image.Image:
         """Vorverarbeitung für Fotos/hochgeladene Bilder - sanfter um Details zu erhalten."""
         # Upscale falls nötig damit Tesseract genug Pixel hat
         min_dim = 2000
@@ -109,7 +121,7 @@ class CodeExtractor(QMainWindow):
             )
         return image
 
-    def _ocr_image(self, image):
+    def _ocr_image(self, image: Image.Image) -> str:
         """OCR auf einem Bild, probiert mehrere Preprocessing-Varianten und gibt den besten Text zurück."""
         variants = []
 
@@ -153,7 +165,7 @@ class CodeExtractor(QMainWindow):
             best_text = pytesseract.image_to_string(variants[0], config=r'--oem 3 --psm 6 -l eng')
         return best_text
 
-    def _score_ocr_variant(self, image, text):
+    def _score_ocr_variant(self, image: Image.Image, text: str) -> float:
         codes = self._extract_codes_from_text(text, allow_compact=False, min_digits=2)
         confidence_score = self._ocr_confidence_score(image)
         text_quality_score = self._text_quality_score(text)
@@ -165,7 +177,7 @@ class CodeExtractor(QMainWindow):
             return len(codes) * 3.0 + confidence_score * 0.08 + text_quality_score * 0.4
         return confidence_score * 0.1 + text_quality_score
 
-    def _ocr_confidence_score(self, image):
+    def _ocr_confidence_score(self, image: Image.Image) -> float:
         try:
             data = pytesseract.image_to_data(
                 image,
@@ -188,7 +200,7 @@ class CodeExtractor(QMainWindow):
             return 0.0
         return sum(conf_values) / len(conf_values)
 
-    def _text_quality_score(self, text):
+    def _text_quality_score(self, text: str) -> float:
         upper = (text or "").upper()
         tokens = re.findall(r"[A-Z0-9]+", upper)
         if not tokens:
@@ -228,7 +240,7 @@ class CodeExtractor(QMainWindow):
         score -= short_token_count * 0.8
         return score
 
-    def _get_ocr_selection_mode_config(self):
+    def _get_ocr_selection_mode_config(self) -> str:
         raw = self.config.get("ocr_selection_mode")
         if raw is None:
             return "text"
@@ -238,7 +250,9 @@ class CodeExtractor(QMainWindow):
             return value
         return "text"
 
-    def _extract_codes_from_text(self, text, allow_compact=False, min_digits=2):
+    def _extract_codes_from_text(
+        self, text: str, allow_compact: bool = False, min_digits: int = 2
+    ) -> list[str]:
         text = (text or "").upper()
 
         # Prefer explicit 4x4 grouping in OCR-like text to avoid matching long words.
@@ -272,17 +286,17 @@ class CodeExtractor(QMainWindow):
                 codes.append(f"{normalized[0:4]} {normalized[4:8]} {normalized[8:12]} {normalized[12:16]}")
         return list(dict.fromkeys(codes))
 
-    def _looks_like_single_compact_code_input(self, text):
+    def _looks_like_single_compact_code_input(self, text: str) -> bool:
         compact = re.sub(r"[\s\-]", "", (text or "").upper())
         return bool(re.fullmatch(r"[A-Z0-9]{16}", compact))
 
-    def _write_codes(self, codes, overwrite=True):
+    def _write_codes(self, codes: list[str], overwrite: bool = True) -> None:
         mode = "w" if overwrite else "a"
         with open("codes.txt", mode, encoding="utf-8") as file:
             for code in codes:
                 file.write(code.strip() + "\n")
 
-    def _get_bool_config(self, key, default):
+    def _get_bool_config(self, key: str, default: bool) -> bool:
         value = self.config.get(key)
         if value is None:
             return default
@@ -296,7 +310,7 @@ class CodeExtractor(QMainWindow):
                 return False
         return bool(value)
 
-    def extract_codes(self, overwrite=True):
+    def extract_codes(self, overwrite: bool = True) -> None:
         # Manual text input: allow lowercase by converting first
         text = self.input_box.toPlainText().upper()
         codes = self._extract_codes_from_text(text, allow_compact=False, min_digits=2)
@@ -315,7 +329,7 @@ class CodeExtractor(QMainWindow):
             from dialog import message_box, ICON_EXCLAMATION
             message_box("No valid codes were found in the text.", icon=ICON_EXCLAMATION)
 
-    def _detect_card_regions(self, image):
+    def _detect_card_regions(self, image: Image.Image) -> list[tuple[int, int, int, int]]:
         if min(image.width, image.height) < 400:
             return []
 
@@ -344,7 +358,7 @@ class CodeExtractor(QMainWindow):
                 regions.append((x1, y1, x2, y2))
         return regions
 
-    def _prepare_layout_image(self, image):
+    def _prepare_layout_image(self, image: Image.Image) -> Image.Image:
         gray = ImageOps.autocontrast(image.convert('L'))
         max_side = 1000
         if max(gray.width, gray.height) > max_side:
@@ -355,7 +369,7 @@ class CodeExtractor(QMainWindow):
             )
         return gray
 
-    def _find_bright_spans(self, image, axis="x"):
+    def _find_bright_spans(self, image: Image.Image, axis: str = "x") -> list[tuple[int, int]]:
         width, height = image.size
         mean_value = ImageStat.Stat(image).mean[0]
         bright_threshold = max(145, min(235, int(mean_value + 35)))
@@ -392,7 +406,7 @@ class CodeExtractor(QMainWindow):
         min_span = max(24, int(outer_len * 0.08))
         return [span for span in spans if span[1] - span[0] >= min_span]
 
-    def _smooth_values(self, values, radius=4):
+    def _smooth_values(self, values: list[float], radius: int = 4) -> list[float]:
         if not values:
             return []
         smoothed = []
@@ -403,7 +417,7 @@ class CodeExtractor(QMainWindow):
             smoothed.append(sum(window) / len(window))
         return smoothed
 
-    def _boolean_spans(self, flags):
+    def _boolean_spans(self, flags: list[bool]) -> list[tuple[int, int]]:
         spans = []
         start = None
         for index, flag in enumerate(flags):
@@ -416,7 +430,9 @@ class CodeExtractor(QMainWindow):
             spans.append((start, len(flags)))
         return spans
 
-    def _merge_spans(self, spans, gap_limit):
+    def _merge_spans(
+        self, spans: list[tuple[int, int]], gap_limit: int
+    ) -> list[tuple[int, int]]:
         if not spans:
             return []
         merged = [list(spans[0])]
@@ -428,7 +444,7 @@ class CodeExtractor(QMainWindow):
                 merged.append([start, end])
         return [(start, end) for start, end in merged]
 
-    def _cleanup_display_text(self, text):
+    def _cleanup_display_text(self, text: str) -> str:
         cleaned_lines = []
         previous_line = None
         for raw_line in (text or "").splitlines():
@@ -448,13 +464,13 @@ class CodeExtractor(QMainWindow):
             previous_line = line
         return "\n".join(cleaned_lines).strip()
 
-    def _ocr_cards_in_image(self, image):
+    def _ocr_cards_in_image(self, image: Image.Image) -> tuple[str, list[str]]:
         card_regions = self._detect_card_regions(image)
         if not card_regions:
             return "", []
 
         card_texts = []
-        all_codes = []
+        all_codes: list[str] = []
         for region in card_regions:
             card_image = image.crop(region)
             ocr_text = self._cleanup_display_text(self._ocr_image(card_image))
@@ -466,7 +482,7 @@ class CodeExtractor(QMainWindow):
 
         return "\n\n".join(card_texts).strip(), all_codes
 
-    def upload_image_and_extract(self, overwrite=None):
+    def upload_image_and_extract(self, overwrite: bool | None = None) -> None:
         if overwrite is None:
             overwrite = self.ocr_overwrite_default
 
@@ -481,7 +497,7 @@ class CodeExtractor(QMainWindow):
 
         try:
             original = Image.open(file_path)
-            angle_results = []
+            angle_results: list[tuple[int, list[str]]] = []
             best_display_text = ""
             best_display_score = float("-inf")
             best_display_angle = 0
@@ -505,7 +521,7 @@ class CodeExtractor(QMainWindow):
                     best_display_text = f"[{angle}°]\n{ocr_text.strip()}"
 
             # Codes konservativ sammeln: nur aus 0° und dem bestlesbaren Winkel.
-            all_codes = []
+            all_codes: list[str] = []
             selected_angles = {0, best_display_angle}
             for angle, found in angle_results:
                 if angle not in selected_angles:
@@ -530,22 +546,22 @@ class CodeExtractor(QMainWindow):
             from dialog import message_box, ICON_STOP
             message_box(f"OCR failed: {e}", icon=ICON_STOP)
 
-    def clear_text(self):
+    def clear_text(self) -> None:
         self.input_box.clear()
 
-    def _update_mode_indicator(self):
+    def _update_mode_indicator(self) -> None:
         mode_name = "Overwrite" if self.manual_overwrite else "Append"
         first_click_hint = " (First click switches to append)" if self._first_extract_click_pending else ""
         self.mode_label.setText(f"Manual Extract Mode: {mode_name}{first_click_hint}")
         next_mode = "Append" if self.manual_overwrite else "Overwrite"
         self.toggle_mode_button.setText(f"Switch to {next_mode}")
 
-    def toggle_extract_mode(self):
+    def toggle_extract_mode(self) -> None:
         self.manual_overwrite = not self.manual_overwrite
         self._first_extract_click_pending = False
         self._update_mode_indicator()
 
-    def _handle_extract_button_click(self):
+    def _handle_extract_button_click(self) -> None:
         if self._first_extract_click_pending:
             self.manual_overwrite = False
             self._first_extract_click_pending = False
@@ -553,7 +569,7 @@ class CodeExtractor(QMainWindow):
         self.extract_codes(overwrite=self.manual_overwrite)
 
 
-def run_codes():
+def run_codes() -> None:
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)

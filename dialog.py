@@ -1,7 +1,10 @@
-from PySide6.QtWidgets import QApplication, QMessageBox, QMainWindow
-from PySide6.QtGui import QIcon
-from pathlib import Path
+from __future__ import annotations
+
 import sys
+from pathlib import Path
+
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
 # Resources folder
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -29,7 +32,12 @@ IDCANCEL = QMessageBox.StandardButton.Cancel.value
 IDYES = QMessageBox.StandardButton.Yes.value
 IDNO = QMessageBox.StandardButton.No.value
 
-def message_box(text, icon=ICON_INFORMATION, style=STYLE_OK, title='DBSFW Code Injector') -> int:
+def message_box(
+    text: str,
+    icon: QMessageBox.Icon = ICON_INFORMATION,
+    style: QMessageBox.StandardButton = STYLE_OK,
+    title: str = 'DBSFW Code Injector',
+) -> int:
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
@@ -67,6 +75,6 @@ class CustomException(Exception):
     Does not show a dialog or exit by itself; the entrypoint that
     catches it is responsible for that (see main.py).
     """
-    def __init__(self, err, icon=ICON_STOP):
+    def __init__(self, err: str, icon: QMessageBox.Icon = ICON_STOP) -> None:
         super().__init__(err)
         self.icon = icon
