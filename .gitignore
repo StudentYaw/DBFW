@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# PyInstaller build output
+build/
+dist/
+*.spec.bak
+
+# Test cache
+.pytest_cache/
+
+# Runtime-generated artifacts
+res/*_scaled.png
+codes_with_errors.txt
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
