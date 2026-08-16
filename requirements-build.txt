@@ -1,0 +1,5 @@
+# Extra dependencies needed only to build the standalone executable
+# with PyInstaller (see main.spec). Not needed to run from source.
+# Install with: pip install -r requirements.txt -r requirements-build.txt
+
+pyinstaller>=6.10,<7
