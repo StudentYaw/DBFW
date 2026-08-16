@@ -9,6 +9,7 @@ from PIL import Image, ImageEnhance, ImageOps, ImageStat
 import pytesseract
 from pytesseract import Output
 from config_manager import ConfigManager
+from tesseract_setup import configure_tesseract
 
 
 # Resources folder
@@ -87,13 +88,7 @@ class CodeExtractor(QMainWindow):
         self._update_mode_indicator()
 
     def _setup_tesseract(self):
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(sys.executable)
-            tesseract_path = os.path.join(base_path, 'tesseract-ocr', 'tesseract.exe')
-            os.environ['TESSDATA_PREFIX'] = os.path.join(base_path, 'tesseract-ocr', 'tessdata')
-        else:
-            tesseract_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-        pytesseract.pytesseract.tesseract_cmd = tesseract_path
+        configure_tesseract()
 
     def _preprocess_for_ocr(self, image):
         """Leichte Vorverarbeitung für Screenshots (wird in ocr_check_text verwendet)."""

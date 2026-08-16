@@ -8,6 +8,7 @@ from PIL import Image, ImageGrab, ImageEnhance, ImageFilter
 from dialog import *
 from Codes import run_codes
 from config_manager import ConfigManager
+from tesseract_setup import configure_tesseract
 import pytesseract
 
 # Set up logging
@@ -196,17 +197,7 @@ class CodeInjector:
                     self.not_done = False
 
     def _setup_tesseract(self):
-        """Setzt den Tesseract-Pfad dynamisch, je nachdem ob .exe oder Python."""
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(sys.executable)
-            tesseract_path = os.path.join(base_path, 'tesseract-ocr', 'tesseract.exe')
-        else:
-            tesseract_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-        pytesseract.pytesseract.tesseract_cmd = tesseract_path
-        # Tessdata-Pfad setzen
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(sys.executable)
-            os.environ['TESSDATA_PREFIX'] = os.path.join(base_path, 'tesseract-ocr', 'tessdata')
+        configure_tesseract()
 
     def _preprocess_for_ocr(self, image):
         """
