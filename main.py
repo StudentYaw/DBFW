@@ -138,7 +138,7 @@ class CodeInjector:
                     pyautogui.click(*location)
                     pyautogui.sleep(self.config.get('sleep'))
                     self._enter_code(code)
-                except Exception as e:
+                except pyautogui.ImageNotFoundException as e:
                     logging.error(f'Codes section not opened: {e}')
                     raise CustomException('Codes section is not opened')
 
@@ -147,7 +147,7 @@ class CodeInjector:
                     res = pyautogui.locateOnScreen(str(self.scaled_images['confirm']), confidence=self.config.get('confidence'))
                     pyautogui.click(pyautogui.center(res))
                     pyautogui.sleep(self.config.get('sleep_confirm'))
-                except Exception as e:
+                except pyautogui.ImageNotFoundException as e:
                     logging.error(f'Cannot press confirm: {e}')
                     raise CustomException('Cannot press confirm')
 
@@ -178,7 +178,7 @@ class CodeInjector:
                 try:
                     res = pyautogui.locateOnScreen(str(self.scaled_images['close']), confidence=self.config.get('confidence'))
                     pyautogui.click(pyautogui.center(res))
-                except Exception as e:
+                except pyautogui.ImageNotFoundException as e:
                     logging.error(f'Cannot press close: {e}')
                     raise CustomException('Cannot press close')
 
