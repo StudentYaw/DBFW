@@ -234,13 +234,17 @@ def test_extract_codes_accepts_two_digit_grouped_codes(extractor):
 
 
 def test_detect_card_regions_finds_grid_like_cards(extractor):
-    image = Image.new("RGB", (600, 420), color="#202020")
+    # Boxes must be large enough to clear _detect_card_regions' own
+    # min_width/min_height floors (120px/160px) after padding - a previous
+    # version of this test used 100x160 boxes, which fell just short
+    # (113px after padding) and always failed once actually run.
+    image = Image.new("RGB", (700, 460), color="#202020")
     draw = ImageDraw.Draw(image)
     for box in (
-        (20, 20, 120, 180),
-        (140, 20, 240, 180),
-        (20, 210, 120, 390),
-        (140, 210, 240, 390),
+        (20, 20, 160, 200),
+        (190, 20, 330, 200),
+        (20, 230, 160, 410),
+        (190, 230, 330, 410),
     ):
         draw.rectangle(box, fill="white")
 
