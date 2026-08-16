@@ -62,7 +62,11 @@ def message_box(text, icon=ICON_INFORMATION, style=STYLE_OK, title='DBSFW Code I
     return result
 
 class CustomException(Exception):
+    """Carries a user-facing error message and dialog icon.
+
+    Does not show a dialog or exit by itself; the entrypoint that
+    catches it is responsible for that (see main.py).
+    """
     def __init__(self, err, icon=ICON_STOP):
         super().__init__(err)
-        message_box(text=err, icon=icon)
-        sys.exit()
+        self.icon = icon

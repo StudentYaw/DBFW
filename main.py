@@ -250,4 +250,8 @@ class CodeInjector:
 
 if __name__ == "__main__":
     injector = CodeInjector()
-    injector.run_injection()
+    try:
+        injector.run_injection()
+    except CustomException as e:
+        message_box(text=str(e), icon=e.icon)
+        sys.exit(1)
