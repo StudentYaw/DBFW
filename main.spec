@@ -36,6 +36,7 @@ a = Analysis(
         'PIL.ImageGrab',
         'pyautogui',
         'pygetwindow',
+        'cv2',
         'PySide6.QtWidgets',
         'PySide6.QtGui',
         'PySide6.QtCore',
