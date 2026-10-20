@@ -434,3 +434,54 @@ def test_configure_tesseract_limits_tesseract_to_one_thread(monkeypatch):
     monkeypatch.setenv("OMP_THREAD_LIMIT", "3")
     configure_tesseract()
     assert os.environ["OMP_THREAD_LIMIT"] == "3"
+
+
+def test_extract_codes_does_not_join_groups_across_lines(extractor):
+    # A code whose last group was cut off must not be completed with the
+    # first word of the next line.
+    assert extractor._extract_codes_from_text("Q7NL HU2Z CYMU\nCode redemption deadline") == []
+    assert extractor._extract_codes_from_text("Q7NL HU2Z CYMU UMZ5\nCode redemption deadline") == ["Q7NL HU2Z CYMU UMZ5"]
+
+
+@pytest.mark.parametrize("text", [
+    "ABCD-EF3Z-GHJK-LMN5",
+    "ABCD\tEF3Z\tGHJK\tLMN5",
+    "ABCD\u00a0EF3Z\u00a0GHJK\u00a0LMN5",  # non-breaking spaces from pasted web text
+])
+def test_extract_codes_accepts_horizontal_separators(extractor, text):
+    assert extractor._extract_codes_from_text(text) == ["ABCD EF3Z GHJK LMN5"]
+
+
+def test_extract_codes_accepts_grouped_codes_with_digits_only_in_second_group(extractor):
+    # Every known real code has a digit in its second group; that is enough
+    # for cleanly grouped text, even if no other group has a digit.
+    assert extractor._extract_codes_from_text("ABCD EF3Z GHJK LMNP") == ["ABCD EF3Z GHJK LMNP"]
+
+
+def test_extract_codes_still_rejects_wordy_text_and_glued_fragments(extractor):
+    # Digit only in the first group: card text, not a code.
+    assert extractor._extract_codes_from_text("AFTER FB09 CARD DATA WILL BE") == []
+    # Glued OCR fragment with a digit in its second group: the relaxed rule
+    # applies to cleanly grouped text only.
+    assert extractor._extract_codes_from_text("FTERFB09CARDDATA", allow_compact=True, min_digits=1) == []
+
+
+def test_extract_codes_reads_zero_as_letter_o(extractor):
+    # Real codes never contain 0 but do contain O, which OCR often reads as 0.
+    assert extractor._extract_codes_from_text("03EF Z84Z NW6C R245") == ["O3EF Z84Z NW6C R245"]
+    assert extractor._extract_codes_from_text("03EFZ84ZNW6CR245", allow_compact=True, min_digits=1) == ["O3EF Z84Z NW6C R245"]
+
+
+def test_upload_falls_back_to_whole_image_when_card_segmentation_finds_no_codes(extractor, monkeypatch, tmp_path, message_box_calls):
+    # A single card filling the photo can be mis-segmented into a blank
+    # "card"; its unreadable text must not replace the whole-image OCR.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("Codes.QFileDialog.getOpenFileName", lambda *args, **kwargs: ("fake.png", ""))
+    monkeypatch.setattr("Codes.Image.open", lambda *args, **kwargs: Image.new("RGB", (900, 600), "white"))
+    monkeypatch.setattr(extractor, "_ocr_cards_in_image", lambda rotated: ("F ES Qe QS ww", []))
+    monkeypatch.setattr(extractor, "_ocr_image", lambda rotated: "Use this code to unlock\nGO4D KX7Z PLMO R2S5")
+
+    extractor.upload_image_and_extract(overwrite=True)
+    wait_for_ocr(extractor)
+
+    assert (tmp_path / "codes.txt").read_text(encoding="utf-8") == "GO4D KX7Z PLMO R2S5\n"

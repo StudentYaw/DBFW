@@ -43,6 +43,16 @@ LOGO = RESOURCES / 'logo.ico'
 # koennen unabhaengige Aufrufe parallel laufen: ein Worker pro CPU-Kern.
 _OCR_POOL = ThreadPoolExecutor(max_workers=os.cpu_count() or 1)
 
+# Aufbau echter Codes (31 Codes von 2024 bis 2026 ausgewertet): 4 Gruppen zu
+# je 4 Zeichen aus A-Z ohne I und den Ziffern 2-9, also nie 0, 1 oder I. Die
+# 2. Gruppe enthaelt immer eine Ziffer.
+#
+# Trenner zwischen den Gruppen: Leerraum oder Bindestrich, aber kein
+# Zeilenumbruch. Sonst wird z. B. ein abgeschnittener Code mit dem ersten Wort
+# der naechsten Zeile ("... CYMU" + "Code redemption ...") zu einem falschen
+# Code zusammengesetzt.
+_GROUP_SEP = r"(?:[^\S\r\n\u2028\u2029]|-)+"
+
 
 def _on_own_copy(func: Callable[..., Any], image: Image.Image, **kwargs: Any) -> Any:
     # pytesseract und Pillow veraendern beim Speichern das Bildobjekt, daher
@@ -305,29 +315,37 @@ class CodeExtractor(QMainWindow):
         # Prefer explicit 4x4 grouping in OCR-like text to avoid matching long words.
         separated_pattern = (
             r"(?<![A-Z0-9])"
-            r"([A-Z0-9]{4})[\s\-]+([A-Z0-9]{4})[\s\-]+([A-Z0-9]{4})[\s\-]+([A-Z0-9]{4})"
+            rf"([A-Z0-9]{{4}}){_GROUP_SEP}([A-Z0-9]{{4}}){_GROUP_SEP}([A-Z0-9]{{4}}){_GROUP_SEP}([A-Z0-9]{{4}})"
             r"(?![A-Z0-9])"
         )
 
-        matches = re.findall(separated_pattern, text)
+        matches = [(groups, True) for groups in re.findall(separated_pattern, text)]
         if allow_compact:
             compact_pattern = r"(?<![A-Z0-9])([A-Z0-9]{16})(?![A-Z0-9])"
-            matches.extend([(m[0:4], m[4:8], m[8:12], m[12:16]) for m in re.findall(compact_pattern, text)])
+            matches.extend(((m[0:4], m[4:8], m[8:12], m[12:16]), False) for m in re.findall(compact_pattern, text))
 
         codes = []
-        for groups in matches:
+        for groups, separated in matches:
+            # Echte Codes enthalten nie eine 0, aber oft ein O: eine 0 hat die
+            # OCR (oder der Nutzer) also falsch gelesen.
+            groups = tuple(group.replace("0", "O") for group in groups)
             normalized = ''.join(groups)
             if len(normalized) != 16:
                 continue
-            digit_count = sum(c.isdigit() for c in normalized)
-            # Fragments like FB09CARDDATA often have very few digits.
-            if digit_count < min_digits:
-                continue
 
-            # Wortartige OCR-Fragmente vermeiden: Ziffern sollten in mehreren 4er-Gruppen vorkommen.
-            groups_with_digits = sum(any(ch.isdigit() for ch in group) for group in groups)
-            if groups_with_digits < 2:
-                continue
+            # Sauber in 4er-Gruppen geschrieben reicht eine Ziffer in der 2.
+            # Gruppe, die haben alle bekannten echten Codes. Sonst, und immer
+            # bei zusammengeklebten 16er-Folgen aus der OCR, strenger pruefen.
+            if not (separated and any(ch.isdigit() for ch in groups[1])):
+                digit_count = sum(c.isdigit() for c in normalized)
+                # Fragments like FB09CARDDATA often have very few digits.
+                if digit_count < min_digits:
+                    continue
+
+                # Wortartige OCR-Fragmente vermeiden: Ziffern sollten in mehreren 4er-Gruppen vorkommen.
+                groups_with_digits = sum(any(ch.isdigit() for ch in group) for group in groups)
+                if groups_with_digits < 2:
+                    continue
 
             if any(c.isdigit() for c in normalized) and any(c.isalpha() for c in normalized):
                 codes.append(f"{normalized[0:4]} {normalized[4:8]} {normalized[8:12]} {normalized[12:16]}")
@@ -570,7 +588,10 @@ class CodeExtractor(QMainWindow):
         for angle in (0, 90):
             rotated = original.rotate(angle, expand=True)
             segmented_text, segmented_codes = self._ocr_cards_in_image(rotated)
-            if segmented_text:
+            # Die Karten-Segmentierung erkennt bei einer einzelnen, bildfuellenden
+            # Karte gelegentlich einen leeren Teilbereich als "Karte". Deren Text
+            # nur verwenden, wenn darin Codes stehen, sonst das ganze Bild lesen.
+            if segmented_codes:
                 ocr_text = segmented_text
                 found = segmented_codes
             else:
