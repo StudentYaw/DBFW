@@ -1,6 +1,10 @@
 import os
+import threading
+import time
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import pytesseract
 import pytest
 from PIL import Image, ImageDraw
 from PySide6.QtWidgets import QApplication
@@ -8,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 import dialog
 from config_manager import ConfigManager
 from Codes import CodeExtractor
+from tesseract_setup import configure_tesseract
 
 
 @pytest.fixture(scope="session")
@@ -36,6 +41,16 @@ def message_box_calls(monkeypatch):
 
     monkeypatch.setattr(dialog, "message_box", fake_message_box)
     return calls
+
+
+def wait_for_ocr(window, timeout=10.0):
+    """upload_image_and_extract runs OCR in a background thread; process Qt
+    events until its result has been delivered back to the window."""
+    deadline = time.monotonic() + timeout
+    while window._ocr_running:
+        assert time.monotonic() < deadline, "OCR did not finish in time"
+        QApplication.processEvents()
+        time.sleep(0.01)
 
 
 def test_config_manager_load():
@@ -83,6 +98,8 @@ def test_upload_image_and_extract_appends_by_default(extractor, monkeypatch, tmp
 
     extractor.upload_image_and_extract()
 
+    wait_for_ocr(extractor)
+
     assert (tmp_path / "codes.txt").read_text(encoding="utf-8") == (
         "KEEP 1111 THIS 2222\n"
         "ABCD 1234 EFGH 5678\n"
@@ -100,6 +117,8 @@ def test_upload_image_and_extract_can_overwrite(extractor, monkeypatch, tmp_path
     monkeypatch.setattr(extractor, "_ocr_image", lambda rotated: "WXYZ 9876 IJKL 5432")
 
     extractor.upload_image_and_extract(overwrite=True)
+
+    wait_for_ocr(extractor)
 
     assert (tmp_path / "codes.txt").read_text(encoding="utf-8") == "WXYZ 9876 IJKL 5432\n"
     assert "WXYZ 9876 IJKL 5432" in message_box_calls[-1]
@@ -180,6 +199,8 @@ def test_upload_image_uses_ocr_overwrite_default_when_no_parameter(qapp, monkeyp
         monkeypatch.setattr(dialog, "message_box", lambda *args, **kwargs: dialog.IDOK)
 
         window.upload_image_and_extract()
+
+        wait_for_ocr(window)
 
         assert write_overwrite_flags == [True]
     finally:
@@ -287,6 +308,8 @@ def test_upload_image_and_extract_uses_segmented_card_ocr_without_mixing(extract
 
     extractor.upload_image_and_extract(overwrite=True)
 
+    wait_for_ocr(extractor)
+
     assert (tmp_path / "codes.txt").read_text(encoding="utf-8") == (
         "ABCD 1234 EFGH 5678\n"
         "WXYZ 9876 IJKL 5432\n"
@@ -294,3 +317,120 @@ def test_upload_image_and_extract_uses_segmented_card_ocr_without_mixing(extract
     assert "ABCD 1234 EFGH 5678" in extractor.input_box.toPlainText()
     assert "WXYZ 9876 IJKL 5432" in extractor.input_box.toPlainText()
     assert len(message_box_calls) == 1
+
+
+def test_upload_runs_ocr_in_background_and_keeps_window_open(extractor, monkeypatch, tmp_path, message_box_calls):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("Codes.QFileDialog.getOpenFileName", lambda *args, **kwargs: ("fake.png", ""))
+    monkeypatch.setattr("Codes.Image.open", lambda *args, **kwargs: Image.new("RGB", (10, 10), "white"))
+    release = threading.Event()
+    ocr_threads = []
+
+    def slow_ocr(image):
+        ocr_threads.append(threading.current_thread())
+        release.wait(timeout=10)
+        return "ABCD 1234 EFGH 5678"
+
+    monkeypatch.setattr(extractor, "_ocr_image", slow_ocr)
+    write_threads = []
+    original_write_codes = extractor._write_codes
+
+    def recording_write_codes(codes, overwrite=True):
+        write_threads.append(threading.current_thread())
+        original_write_codes(codes, overwrite=overwrite)
+
+    monkeypatch.setattr(extractor, "_write_codes", recording_write_codes)
+    extractor.show()
+
+    extractor.upload_image_and_extract(overwrite=True)
+
+    # The call returns while OCR is still running. Nothing that could race
+    # with it is usable, and the window refuses to close: main.py reads the
+    # codes file as soon as it does.
+    assert extractor._ocr_running
+    assert not extractor.next_button.isEnabled()
+    assert not extractor.upload_button.isEnabled()
+    extractor.close()
+    assert extractor.isVisible()
+
+    release.set()
+    wait_for_ocr(extractor)
+
+    # OCR ran in the background, but the result (file write, widgets) was
+    # handled back on the GUI thread.
+    assert ocr_threads and threading.main_thread() not in ocr_threads
+    assert write_threads == [threading.main_thread()]
+    assert extractor.next_button.isEnabled()
+    assert (tmp_path / "codes.txt").read_text(encoding="utf-8") == "ABCD 1234 EFGH 5678\n"
+    extractor.close()
+    assert not extractor.isVisible()
+
+
+def test_upload_reports_ocr_errors_and_unlocks_window(extractor, monkeypatch, message_box_calls):
+    monkeypatch.setattr("Codes.QFileDialog.getOpenFileName", lambda *args, **kwargs: ("broken.png", ""))
+
+    def broken_open(*args, **kwargs):
+        raise OSError("cannot identify image file")
+
+    monkeypatch.setattr("Codes.Image.open", broken_open)
+
+    extractor.upload_image_and_extract()
+    wait_for_ocr(extractor)
+
+    assert message_box_calls == ["OCR failed: cannot identify image file"]
+    assert extractor.upload_button.isEnabled()
+
+
+def test_ocr_image_computes_confidence_once_per_variant(extractor, monkeypatch):
+    calls = {"image_to_string": 0, "image_to_data": 0}
+    lock = threading.Lock()
+
+    def counting(name, result):
+        def fake(*args, **kwargs):
+            with lock:
+                calls[name] += 1
+            return result
+        return fake
+
+    monkeypatch.setattr("Codes.pytesseract.image_to_string", counting("image_to_string", ""))
+    monkeypatch.setattr("Codes.pytesseract.image_to_data", counting("image_to_data", {"conf": []}))
+    extractor.ocr_selection_mode = "text"
+
+    assert extractor._ocr_image(Image.new("RGB", (40, 20), "white")) == ""
+
+    # 3 variants x 3 configs for the text, the confidence once per variant
+    # (it does not depend on the config) and no repeated call for the
+    # empty-text fallback.
+    assert calls == {"image_to_string": 9, "image_to_data": 3}
+
+
+def test_ocr_image_keeps_first_combination_on_equal_scores(extractor, monkeypatch):
+    # Precondition: both texts score the same.
+    assert extractor._text_quality_score("REDEEM FIRST") == extractor._text_quality_score("REDEEM OTHER")
+
+    def fake_image_to_string(image, config=""):
+        if image.mode == "RGB" and "--psm 6" in config:
+            time.sleep(0.2)  # the first combination finishes last
+            return "REDEEM FIRST"
+        return "REDEEM OTHER"
+
+    monkeypatch.setattr("Codes.pytesseract.image_to_string", fake_image_to_string)
+    monkeypatch.setattr("Codes.pytesseract.image_to_data", lambda *args, **kwargs: {"conf": ["90"]})
+    extractor.ocr_selection_mode = "text"
+
+    # Results are evaluated in submission order, not completion order, so
+    # ties are broken exactly as in the old sequential loop.
+    assert extractor._ocr_image(Image.new("RGB", (40, 20), "white")) == "REDEEM FIRST"
+
+
+def test_configure_tesseract_limits_tesseract_to_one_thread(monkeypatch):
+    monkeypatch.setattr(pytesseract.pytesseract, "tesseract_cmd", pytesseract.pytesseract.tesseract_cmd)
+
+    monkeypatch.delenv("OMP_THREAD_LIMIT", raising=False)
+    configure_tesseract()
+    assert os.environ["OMP_THREAD_LIMIT"] == "1"
+
+    # An explicit user setting wins.
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "3")
+    configure_tesseract()
+    assert os.environ["OMP_THREAD_LIMIT"] == "3"
