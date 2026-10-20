@@ -23,6 +23,13 @@ def configure_tesseract() -> None:
     3. A tesseract binary found on PATH.
     4. A common per-OS install location as a last-resort guess.
     """
+    # Codes.py runs one tesseract process per CPU core. Tesseract builds with
+    # OpenMP would each start several threads on top of that and oversubscribe
+    # the CPU (on a 4-core machine a single call went from ~0.5s to over 90s
+    # in testing), so cap
+    # every process to one thread, as recommended by the Tesseract docs.
+    os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+
     if getattr(sys, "frozen", False):
         base_path = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
         exe_name = "tesseract.exe" if platform.system() == "Windows" else "tesseract"

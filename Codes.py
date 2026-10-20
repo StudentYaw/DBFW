@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import os
 import re
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any, Callable
 
 from PIL import Image, ImageEnhance, ImageOps, ImageStat
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QCloseEvent, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QProgressBar,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
@@ -34,8 +39,24 @@ else:
 
 LOGO = RESOURCES / 'logo.ico'
 
+# Jeder pytesseract-Aufruf startet einen eigenen tesseract-Prozess, daher
+# koennen unabhaengige Aufrufe parallel laufen: ein Worker pro CPU-Kern.
+_OCR_POOL = ThreadPoolExecutor(max_workers=os.cpu_count() or 1)
+
+
+def _on_own_copy(func: Callable[..., Any], image: Image.Image, **kwargs: Any) -> Any:
+    # pytesseract und Pillow veraendern beim Speichern das Bildobjekt, daher
+    # bekommt jeder parallele Aufruf eine eigene Kopie. Erst im Worker kopiert,
+    # damit nur so viele Kopien gleichzeitig existieren wie Aufrufe laufen.
+    return func(image.copy(), **kwargs)
+
 
 class CodeExtractor(QMainWindow):
+    # Ergebnis eines OCR-Laufs aus dem Hintergrund-Thread:
+    # (Anzeigetext, gefundene Codes, overwrite) bzw. die Fehlermeldung.
+    ocr_finished = Signal(str, object, bool)
+    ocr_failed = Signal(str)
+
     def __init__(self) -> None:
         super().__init__()
         self._setup_tesseract()
@@ -48,6 +69,9 @@ class CodeExtractor(QMainWindow):
         self.ocr_selection_mode = self._get_ocr_selection_mode_config()
         # Erstklick-Switch ist nur sinnvoll, wenn initial Overwrite aktiv ist.
         self._first_extract_click_pending = self.manual_overwrite
+        self._ocr_running = False
+        self.ocr_finished.connect(self._on_ocr_finished)
+        self.ocr_failed.connect(self._on_ocr_failed)
 
         # Central widget
         central_widget = QWidget()
@@ -68,6 +92,15 @@ class CodeExtractor(QMainWindow):
         self.input_box = QTextEdit()
         self.input_box.setFont(QFont("Arial", 12))
         layout.addWidget(self.input_box)
+
+        self.status_label = QLabel()
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)  # Unbestimmter Fortschritt
+        self.progress_bar.hide()
+        layout.addWidget(self.progress_bar)
 
         # Button layout
         button_layout = QHBoxLayout()
@@ -151,23 +184,37 @@ class CodeExtractor(QMainWindow):
                 r'--oem 3 --psm 3 -l eng',
             ]
 
+        # Alle Tesseract-Aufrufe parallel starten. Die Konfidenz haengt nur von
+        # der Variante ab, nicht von der Config, und wird daher nur einmal pro
+        # Variante berechnet.
+        text_futures = [
+            [_OCR_POOL.submit(_on_own_copy, pytesseract.image_to_string, variant, config=ocr_config)
+             for ocr_config in ocr_configs]
+            for variant in variants
+        ]
+        confidence_futures = [
+            _OCR_POOL.submit(_on_own_copy, self._ocr_confidence_score, variant) for variant in variants
+        ]
+
+        # Auswertung in fester Reihenfolge, damit bei Gleichstand wie bisher
+        # die erste Kombination gewinnt.
         best_text = ""
         best_score = float("-inf")
-        for variant in variants:
-            for ocr_config in ocr_configs:
-                text = pytesseract.image_to_string(variant, config=ocr_config)
-                score = self._score_ocr_variant(variant, text)
+        for variant_texts, confidence_future in zip(text_futures, confidence_futures):
+            for text_future in variant_texts:
+                text = text_future.result()
+                score = self._score_ocr_variant(text, confidence_future.result())
                 if score > best_score:
                     best_score = score
                     best_text = text
 
-        if not best_text and variants:
-            best_text = pytesseract.image_to_string(variants[0], config=r'--oem 3 --psm 6 -l eng')
+        if not best_text:
+            # Fallback: Variante 1 mit PSM 6 (erste Config), bereits berechnet.
+            best_text = text_futures[0][0].result()
         return best_text
 
-    def _score_ocr_variant(self, image: Image.Image, text: str) -> float:
+    def _score_ocr_variant(self, text: str, confidence_score: float) -> float:
         codes = self._extract_codes_from_text(text, allow_compact=False, min_digits=2)
-        confidence_score = self._ocr_confidence_score(image)
         text_quality_score = self._text_quality_score(text)
 
         # Mode beeinflusst, ob Volltext oder Codes bei der Variantenauswahl priorisiert werden.
@@ -495,56 +542,103 @@ class CodeExtractor(QMainWindow):
         if not file_path:
             return
 
+        # OCR kann bei Fotos mit mehreren Karten lange dauern; im Hintergrund
+        # ausfuehren, damit das Fenster bedienbar bleibt.
+        self._set_ocr_running(True)
+        threading.Thread(
+            target=self._run_ocr_in_background, args=(file_path, overwrite), daemon=True
+        ).start()
+
+    def _run_ocr_in_background(self, file_path: str, overwrite: bool) -> None:
+        # Laeuft ausserhalb des GUI-Threads: keine Widgets anfassen, Ergebnisse
+        # gehen ueber die (queued) Signale zurueck.
         try:
-            original = Image.open(file_path)
-            angle_results: list[tuple[int, list[str]]] = []
-            best_display_text = ""
-            best_display_score = float("-inf")
-            best_display_angle = 0
+            display_text, codes = self._ocr_file(file_path)
+        except Exception as e:
+            self.ocr_failed.emit(str(e))
+            return
+        self.ocr_finished.emit(display_text, codes, overwrite)
 
-            # 0° und 90° reichen fuer die meisten Fotos; jetzt bevorzugt mit Karten-Segmentierung.
-            for angle in (0, 90):
-                rotated = original.rotate(angle, expand=True)
-                segmented_text, segmented_codes = self._ocr_cards_in_image(rotated)
-                if segmented_text:
-                    ocr_text = segmented_text
-                    found = segmented_codes
-                else:
-                    ocr_text = self._cleanup_display_text(self._ocr_image(rotated))
-                    found = self._extract_codes_from_text(ocr_text, allow_compact=False, min_digits=2)
+    def _ocr_file(self, file_path: str) -> tuple[str, list[str]]:
+        original = Image.open(file_path)
+        angle_results: list[tuple[int, list[str]]] = []
+        best_display_text = ""
+        best_display_score = float("-inf")
+        best_display_angle = 0
 
-                display_score = self._text_quality_score(ocr_text)
-                angle_results.append((angle, found))
-                if display_score > best_display_score:
-                    best_display_score = display_score
-                    best_display_angle = angle
-                    best_display_text = f"[{angle}°]\n{ocr_text.strip()}"
+        # 0° und 90° reichen fuer die meisten Fotos; jetzt bevorzugt mit Karten-Segmentierung.
+        for angle in (0, 90):
+            rotated = original.rotate(angle, expand=True)
+            segmented_text, segmented_codes = self._ocr_cards_in_image(rotated)
+            if segmented_text:
+                ocr_text = segmented_text
+                found = segmented_codes
+            else:
+                ocr_text = self._cleanup_display_text(self._ocr_image(rotated))
+                found = self._extract_codes_from_text(ocr_text, allow_compact=False, min_digits=2)
 
-            # Codes konservativ sammeln: nur aus 0° und dem bestlesbaren Winkel.
-            all_codes: list[str] = []
-            selected_angles = {0, best_display_angle}
-            for angle, found in angle_results:
-                if angle not in selected_angles:
-                    continue
-                for code in found:
-                    if code not in all_codes:
-                        all_codes.append(code)
+            display_score = self._text_quality_score(ocr_text)
+            angle_results.append((angle, found))
+            if display_score > best_display_score:
+                best_display_score = display_score
+                best_display_angle = angle
+                best_display_text = f"[{angle}°]\n{ocr_text.strip()}"
 
-            if best_display_text.strip():
-                self.input_box.setPlainText(best_display_text)
+        # Codes konservativ sammeln: nur aus 0° und dem bestlesbaren Winkel.
+        all_codes: list[str] = []
+        selected_angles = {0, best_display_angle}
+        for angle, found in angle_results:
+            if angle not in selected_angles:
+                continue
+            for code in found:
+                if code not in all_codes:
+                    all_codes.append(code)
+        return best_display_text, all_codes
+
+    def _on_ocr_finished(self, display_text: str, codes: list[str], overwrite: bool) -> None:
+        self._set_ocr_running(False)
+        try:
+            if display_text.strip():
+                self.input_box.setPlainText(display_text)
             else:
                 self.input_box.setPlainText("No readable OCR text found.")
 
-            if all_codes:
-                self._write_codes(all_codes, overwrite=overwrite)
+            if codes:
+                self._write_codes(codes, overwrite=overwrite)
                 from dialog import message_box, ICON_INFORMATION
-                message_box("Codes extracted and saved:\n" + "\n".join(all_codes), icon=ICON_INFORMATION)
+                message_box("Codes extracted and saved:\n" + "\n".join(codes), icon=ICON_INFORMATION)
             else:
                 from dialog import message_box, ICON_EXCLAMATION
                 message_box("No valid codes were found in the image.", icon=ICON_EXCLAMATION)
         except Exception as e:
-            from dialog import message_box, ICON_STOP
-            message_box(f"OCR failed: {e}", icon=ICON_STOP)
+            self._on_ocr_failed(str(e))
+
+    def _on_ocr_failed(self, error: str) -> None:
+        self._set_ocr_running(False)
+        from dialog import message_box, ICON_STOP
+        message_box(f"OCR failed: {error}", icon=ICON_STOP)
+
+    def _set_ocr_running(self, running: bool) -> None:
+        self._ocr_running = running
+        for button in (
+            self.extract_button,
+            self.clear_button,
+            self.next_button,
+            self.upload_button,
+            self.toggle_mode_button,
+        ):
+            button.setEnabled(not running)
+        self.input_box.setReadOnly(running)
+        self.progress_bar.setVisible(running)
+        self.status_label.setText("Running OCR, this may take a moment..." if running else "")
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        # main.py liest die Codes-Datei, sobald dieses Fenster schliesst; solange
+        # die OCR noch in die Datei schreiben kann, darf es nicht schliessen.
+        if self._ocr_running:
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def clear_text(self) -> None:
         self.input_box.clear()
