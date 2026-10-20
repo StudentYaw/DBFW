@@ -61,6 +61,17 @@ def test_code_extractor_extract_codes_supports_overwrite_and_append(extractor, m
     assert len(message_box_calls) == 2
 
 
+def test_extract_codes_writes_to_configured_codes_file(extractor, monkeypatch, tmp_path, message_box_calls):
+    monkeypatch.chdir(tmp_path)
+    extractor.config.config["codes_file"] = "my_codes.txt"
+
+    extractor.input_box.setPlainText("ABCD 1234 EFGH 5678")
+    extractor.extract_codes(overwrite=True)
+
+    assert (tmp_path / "my_codes.txt").read_text(encoding="utf-8") == "ABCD 1234 EFGH 5678\n"
+    assert not (tmp_path / "codes.txt").exists()
+
+
 def test_upload_image_and_extract_appends_by_default(extractor, monkeypatch, tmp_path, message_box_calls):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "codes.txt").write_text("KEEP 1111 THIS 2222\n", encoding="utf-8")

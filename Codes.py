@@ -292,7 +292,7 @@ class CodeExtractor(QMainWindow):
 
     def _write_codes(self, codes: list[str], overwrite: bool = True) -> None:
         mode = "w" if overwrite else "a"
-        with open("codes.txt", mode, encoding="utf-8") as file:
+        with open(self.config.get("codes_file"), mode, encoding="utf-8") as file:
             for code in codes:
                 file.write(code.strip() + "\n")
 
