@@ -485,3 +485,77 @@ def test_upload_falls_back_to_whole_image_when_card_segmentation_finds_no_codes(
     wait_for_ocr(extractor)
 
     assert (tmp_path / "codes.txt").read_text(encoding="utf-8") == "GO4D KX7Z PLMO R2S5\n"
+
+
+def _upright_test_image():
+    # Portrait image with a red marker in its top-left corner, so the
+    # orientation the OCR gets to see can be checked.
+    image = Image.new("RGB", (30, 60), "white")
+    ImageDraw.Draw(image).rectangle((0, 0, 9, 9), fill="red")
+    return image
+
+
+def _is_upright(image):
+    return image.size == (30, 60) and image.getpixel((2, 2)) == (255, 0, 0)
+
+
+@pytest.mark.parametrize("orientation, stored_as", [
+    (3, Image.Transpose.ROTATE_180),
+    (6, Image.Transpose.ROTATE_90),   # phone held upright, the most common case
+    (8, Image.Transpose.ROTATE_270),
+])
+def test_ocr_uses_photo_as_displayed_on_the_phone(extractor, monkeypatch, tmp_path, orientation, stored_as):
+    # Phones store the pixels rotated and record the rotation in EXIF.
+    exif = Image.Exif()
+    exif[0x0112] = orientation
+    path = tmp_path / "photo.png"
+    _upright_test_image().transpose(stored_as).save(path, exif=exif)
+    seen = []
+
+    def fake_ocr(image):
+        seen.append(image)
+        return "Use this code\nGO4D KX7Z PLMO R2S5" if _is_upright(image) else ""
+
+    monkeypatch.setattr(extractor, "_ocr_image", fake_ocr)
+
+    display_text, codes = extractor._ocr_file(str(path))
+
+    assert _is_upright(seen[0])  # the first (0 degree) pass already sees it upright
+    assert codes == ["GO4D KX7Z PLMO R2S5"]
+    assert display_text.startswith("[0°]")
+
+
+def test_ocr_tries_upside_down_only_when_nothing_was_found(extractor, monkeypatch, tmp_path):
+    # Cards lying upside down in a photo without EXIF rotation.
+    path = tmp_path / "photo.png"
+    _upright_test_image().transpose(Image.Transpose.ROTATE_180).save(path)
+    calls = []
+
+    def fake_ocr(image):
+        calls.append(image)
+        return "Use this code\nGO4D KX7Z PLMO R2S5" if _is_upright(image) else ""
+
+    monkeypatch.setattr(extractor, "_ocr_image", fake_ocr)
+
+    display_text, codes = extractor._ocr_file(str(path))
+
+    assert codes == ["GO4D KX7Z PLMO R2S5"]
+    assert display_text.startswith("[180°]")
+    assert len(calls) == 4  # 0, 90, then 180 and 270
+
+
+def test_ocr_skips_extra_angles_when_codes_were_found(extractor, monkeypatch, tmp_path):
+    path = tmp_path / "photo.png"
+    _upright_test_image().save(path)
+    calls = []
+
+    def fake_ocr(image):
+        calls.append(image)
+        return "Use this code\nGO4D KX7Z PLMO R2S5" if _is_upright(image) else ""
+
+    monkeypatch.setattr(extractor, "_ocr_image", fake_ocr)
+
+    _, codes = extractor._ocr_file(str(path))
+
+    assert codes == ["GO4D KX7Z PLMO R2S5"]
+    assert len(calls) == 2  # only 0 and 90 degrees

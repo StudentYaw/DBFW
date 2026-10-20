@@ -578,32 +578,40 @@ class CodeExtractor(QMainWindow):
         self.ocr_finished.emit(display_text, codes, overwrite)
 
     def _ocr_file(self, file_path: str) -> tuple[str, list[str]]:
-        original = Image.open(file_path)
+        # Handykameras speichern die Pixel oft gedreht und vermerken die Drehung
+        # nur in den EXIF-Daten. Erst anwenden, damit das Bild so ausgerichtet
+        # ist, wie es auf dem Handy angezeigt wird.
+        original = ImageOps.exif_transpose(Image.open(file_path))
         angle_results: list[tuple[int, list[str]]] = []
         best_display_text = ""
         best_display_score = float("-inf")
         best_display_angle = 0
 
         # 0° und 90° reichen fuer die meisten Fotos; jetzt bevorzugt mit Karten-Segmentierung.
-        for angle in (0, 90):
-            rotated = original.rotate(angle, expand=True)
-            segmented_text, segmented_codes = self._ocr_cards_in_image(rotated)
-            # Die Karten-Segmentierung erkennt bei einer einzelnen, bildfuellenden
-            # Karte gelegentlich einen leeren Teilbereich als "Karte". Deren Text
-            # nur verwenden, wenn darin Codes stehen, sonst das ganze Bild lesen.
-            if segmented_codes:
-                ocr_text = segmented_text
-                found = segmented_codes
-            else:
-                ocr_text = self._cleanup_display_text(self._ocr_image(rotated))
-                found = self._extract_codes_from_text(ocr_text, allow_compact=False, min_digits=2)
+        # 180° und 270° (z. B. Karten auf dem Kopf) nur, wenn dabei kein Code
+        # gefunden wurde, weil jeder Winkel einen vollen OCR-Durchlauf kostet.
+        for angles in ((0, 90), (180, 270)):
+            if any(found for _, found in angle_results):
+                break
+            for angle in angles:
+                rotated = original.rotate(angle, expand=True)
+                segmented_text, segmented_codes = self._ocr_cards_in_image(rotated)
+                # Die Karten-Segmentierung erkennt bei einer einzelnen, bildfuellenden
+                # Karte gelegentlich einen leeren Teilbereich als "Karte". Deren Text
+                # nur verwenden, wenn darin Codes stehen, sonst das ganze Bild lesen.
+                if segmented_codes:
+                    ocr_text = segmented_text
+                    found = segmented_codes
+                else:
+                    ocr_text = self._cleanup_display_text(self._ocr_image(rotated))
+                    found = self._extract_codes_from_text(ocr_text, allow_compact=False, min_digits=2)
 
-            display_score = self._text_quality_score(ocr_text)
-            angle_results.append((angle, found))
-            if display_score > best_display_score:
-                best_display_score = display_score
-                best_display_angle = angle
-                best_display_text = f"[{angle}°]\n{ocr_text.strip()}"
+                display_score = self._text_quality_score(ocr_text)
+                angle_results.append((angle, found))
+                if display_score > best_display_score:
+                    best_display_score = display_score
+                    best_display_angle = angle
+                    best_display_text = f"[{angle}°]\n{ocr_text.strip()}"
 
         # Codes konservativ sammeln: nur aus 0° und dem bestlesbaren Winkel.
         all_codes: list[str] = []
