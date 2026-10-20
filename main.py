@@ -22,10 +22,8 @@ class CodeInjector:
         self.config = ConfigManager()
         self.resources = self.get_resources_path()
         self.scaled_images: dict[str, Path] = {}
-        self.counter_suc = 0
-        self.counter_err = 0
-        self.counter_alr = 0
-        self.counter_unk = 0
+        self.window: Any = None
+        self._reset_counters()
         self.not_done = True
         self._setup_tesseract()  # Einmalig beim Start
 
@@ -94,8 +92,8 @@ class CodeInjector:
         pyautogui.write(normalized, interval=float(interval))
 
     def run_injection(self) -> None:
-        window = self._get_game_window()
-        scaling_factor = self._compute_scaling_factor(window)
+        self.window = self._get_game_window()
+        scaling_factor = self._compute_scaling_factor(self.window)
         self._prepare_scaled_images(scaling_factor)
 
         while self.not_done:
@@ -103,9 +101,20 @@ class CodeInjector:
             self._confirm_start(codes)
             pyautogui.sleep(self.config.get('sleep'))
 
-            errors, codes = self._process_codes(codes)
-            self._write_remaining_codes(codes)
+            self._reset_counters()
+            try:
+                errors = self._process_codes(codes)
+            finally:
+                # Persist progress even if a step failed mid-round, so codes
+                # already handled are not submitted again on the next run.
+                self._write_remaining_codes(codes)
             self._report_results(errors)
+
+    def _reset_counters(self) -> None:
+        self.counter_suc = 0
+        self.counter_err = 0
+        self.counter_alr = 0
+        self.counter_unk = 0
 
     def _get_game_window(self) -> Any:
         windows = gw.getWindowsWithTitle('DBSCGFW')
@@ -149,25 +158,36 @@ class CodeInjector:
         if message_box(f'This process will take approximately {approx_time} {suffix}. Continue?', style=STYLE_OKCANCEL) == IDCANCEL:
             sys.exit()
 
-    def _process_codes(self, codes: list[str]) -> tuple[bool, list[str]]:
+    def _process_codes(self, codes: list[str]) -> bool:
+        """Submit codes in order. Each code is removed from `codes` only once
+        its result has been recorded, so on an exception `codes` still holds
+        every code that has not been handled yet."""
         errors = False
         while codes:
-            code = codes.pop(0)
+            code = codes[0]
             self._submit_code(code)
 
-            result = self.ocr_check_text()
+            result = self.ocr_check_text(self._game_window_region())
             logging.info(f'OCR result for code {code}: {result}')
             if result == 'success':
                 self.counter_suc += 1
             else:
                 errors = True
                 self._record_error(code, result)
-                if self.counter_err + self.counter_unk >= self.config.get('max_errors'):
-                    message_box('Exceeded the maximum number of fails!', icon=ICON_EXCLAMATION)
-                    break
+            codes.pop(0)
 
             self._close_result_dialog()
-        return errors, codes
+            if result != 'success' and self.counter_err + self.counter_unk >= self.config.get('max_errors'):
+                message_box('Exceeded the maximum number of fails!', icon=ICON_EXCLAMATION)
+                break
+        return errors
+
+    def _game_window_region(self) -> tuple[int, int, int, int] | None:
+        # Limit OCR to the game window so text in other windows can't be
+        # misread as a redeem result.
+        if self.window is None:
+            return None
+        return (self.window.left, self.window.top, self.window.right, self.window.bottom)
 
     def _submit_code(self, code: str) -> None:
         try:
@@ -270,10 +290,20 @@ class CodeInjector:
         else:
             return 'unknown'
 
-if __name__ == "__main__":
-    injector = CodeInjector()
+def main() -> None:
     try:
+        injector = CodeInjector()
         injector.run_injection()
     except CustomException as e:
         message_box(text=str(e), icon=e.icon)
         sys.exit(1)
+    except Exception as e:
+        # E.g. Tesseract missing or pyautogui's fail-safe (mouse in a screen
+        # corner): show it instead of dying with a bare traceback.
+        logging.exception('Unexpected error')
+        message_box(text=f'Unexpected error: {e}', icon=ICON_STOP)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
