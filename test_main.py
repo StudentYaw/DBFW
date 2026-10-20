@@ -1,6 +1,8 @@
 import os
 import sys
 import types
+from collections import namedtuple
+from pathlib import Path
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -8,15 +10,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PIL import Image
 
-# pyautogui and pygetwindow only import on a real Windows desktop. CI runs on
-# Windows; stub them elsewhere so main.py's logic can be tested on any OS.
+# pyautogui only imports with a desktop session (CI runs on Windows and
+# macOS); stub it elsewhere so main.py's logic can be tested on any OS.
 # Every test replaces main.pyautogui and the screen-touching methods anyway,
 # so no real mouse or keyboard input is ever sent.
-for _name in ("pyautogui", "pygetwindow"):
-    try:
-        __import__(_name)
-    except Exception:
-        sys.modules[_name] = types.ModuleType(_name)
+try:
+    __import__("pyautogui")
+except Exception:
+    sys.modules["pyautogui"] = types.ModuleType("pyautogui")
 
 import main
 from dialog import CustomException, IDOK
@@ -32,6 +33,10 @@ def injector(monkeypatch, tmp_path):
     monkeypatch.setattr(main.CodeInjector, "_setup_tesseract", lambda self: None)
     monkeypatch.setattr(main, "pyautogui", mock.MagicMock())
     monkeypatch.setattr(main, "message_box", mock.MagicMock(return_value=IDOK))
+    # Default to the Windows code paths, also when the suite runs on macOS;
+    # the macOS tests switch them on explicitly.
+    monkeypatch.setattr(main, "IS_MACOS", False)
+    monkeypatch.setattr(main.game_window, "missing_macos_permissions", lambda: [])
     injector = main.CodeInjector()
     monkeypatch.chdir(tmp_path)
     injector.config.config.update(
@@ -191,3 +196,103 @@ def test_main_still_shows_custom_exceptions_with_their_icon(monkeypatch):
         main.main()
 
     assert shown == [("Codes section is not opened", main.ICON_STOP)]
+
+
+Box = namedtuple("Box", "left top width height")
+
+
+def test_retina_click_positions_are_converted_to_points(injector):
+    # locateOnScreen() reports screenshot pixels; on a Retina Mac clicks take
+    # points, i.e. half of that.
+    gui = main.pyautogui
+    gui.ImageNotFoundException = type("ImageNotFoundException", (Exception,), {})
+    boxes = {"textbox": Box(200, 100, 100, 40), "confirm": Box(400, 300, 60, 20)}
+    gui.locateOnScreen.side_effect = lambda path, confidence: boxes[Path(path).stem]
+    gui.center.side_effect = lambda box: (box.left + box.width / 2, box.top + box.height / 2)
+    injector.scaled_images = {"textbox": Path("textbox"), "confirm": Path("confirm")}
+    injector.screen_scale = 2.0
+
+    injector._submit_code("AAAA1111BBBB2222")
+
+    clicks = [click.args for click in gui.click.call_args_list]
+    assert clicks == [(105.0, 60.0), (105.0, 60.0), (215.0, 155.0)]
+
+
+@pytest.mark.parametrize("screen_scale, expected", [(1.0, 0.5), (2.0, 1.0)])
+def test_template_scaling_uses_the_window_size_in_screenshot_pixels(injector, screen_scale, expected):
+    class Window:  # 960x540 points: 1920x1080 pixels on a Retina display
+        width, height = 960, 540
+
+    injector.screen_scale = screen_scale
+
+    assert injector._compute_scaling_factor(Window()) == expected
+
+
+@pytest.mark.parametrize("is_macos, modifier", [(False, "ctrl"), (True, "command")])
+def test_select_all_uses_the_platform_modifier(injector, monkeypatch, is_macos, modifier):
+    monkeypatch.setattr(main, "IS_MACOS", is_macos)
+
+    injector._enter_code("AAAA 1111 BBBB 2222")
+
+    main.pyautogui.hotkey.assert_called_once_with(modifier, "a")
+    main.pyautogui.write.assert_called_once_with("AAAA1111BBBB2222", interval=0.03)
+
+
+def test_ocr_on_macos_crops_a_full_resolution_screenshot(injector, monkeypatch):
+    monkeypatch.setattr(main, "IS_MACOS", True)
+    injector.screen_scale = 2.0
+    grabs = []
+    ocr_sizes = []
+
+    def fake_grab(bbox=None):
+        grabs.append(bbox)
+        return Image.new("L", (3024, 1964), "white")
+
+    monkeypatch.setattr(main.ImageGrab, "grab", fake_grab)
+    monkeypatch.setattr(main.pytesseract, "image_to_string", lambda image, config="": ocr_sizes.append(image.size) or "")
+
+    injector.ocr_check_text((10, 20, 110, 70))
+
+    # The whole screen is grabbed at full resolution and the window region,
+    # given in points, is cut out in pixels.
+    assert grabs == [None]
+    assert ocr_sizes == [(200, 100)]
+
+
+def test_screen_scale_on_macos_compares_screenshot_pixels_to_points(injector, monkeypatch):
+    monkeypatch.setattr(main, "IS_MACOS", True)
+    main.pyautogui.screenshot.return_value = Image.new("L", (3024, 1964))
+    main.pyautogui.size.return_value = (1512, 982)
+
+    assert injector._detect_screen_scale() == 2.0
+
+
+def test_screen_scale_is_one_outside_macos(injector):
+    assert injector._detect_screen_scale() == 1.0
+    main.pyautogui.screenshot.assert_not_called()
+
+
+def test_missing_macos_permissions_stop_before_touching_the_game(injector, monkeypatch):
+    requested = []
+    monkeypatch.setattr(main.game_window, "missing_macos_permissions", lambda: ["Screen Recording", "Accessibility"])
+    monkeypatch.setattr(main.game_window, "request_macos_permissions", lambda: requested.append(True))
+    monkeypatch.setattr(injector, "_get_game_window", mock.MagicMock())
+
+    with pytest.raises(CustomException) as exc:
+        injector.run_injection()
+
+    assert "Screen Recording, Accessibility" in str(exc.value)
+    assert "System Settings" in str(exc.value)
+    assert requested == [True]
+    injector._get_game_window.assert_not_called()
+
+
+def test_game_window_is_looked_up_by_the_configured_title(injector, monkeypatch):
+    titles = []
+    monkeypatch.setattr(main.game_window, "find_game_window", lambda title: titles.append(title))
+    injector.config.config["window_title"] = "Fusion World"
+
+    with pytest.raises(CustomException, match="Game is not opened"):
+        injector._get_game_window()
+
+    assert titles == ["Fusion World"]

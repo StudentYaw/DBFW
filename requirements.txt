@@ -13,3 +13,8 @@ opencv-python-headless>=4.8,<5
 
 # Required by pygetwindow/pyautogui on Windows only.
 pywin32>=306; sys_platform == "win32"
+
+# macOS only: finding the game window and checking the Screen Recording and
+# Accessibility permissions (see game_window.py).
+pyobjc-framework-Quartz>=10; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices>=10; sys_platform == "darwin"

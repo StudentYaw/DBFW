@@ -6,12 +6,13 @@ import os
 from pathlib import Path
 from typing import Any
 import pyautogui
-import pygetwindow as gw
 from PIL import Image, ImageGrab, ImageEnhance, ImageFilter
 from dialog import *
 from Codes import run_codes
 from config_manager import ConfigManager
 from tesseract_setup import configure_tesseract
+import game_window
+from game_window import IS_MACOS
 import pytesseract
 
 # Set up logging
@@ -23,6 +24,8 @@ class CodeInjector:
         self.resources = self.get_resources_path()
         self.scaled_images: dict[str, Path] = {}
         self.window: Any = None
+        # Screenshot pixels per screen point: 2.0 on a Retina Mac, else 1.0.
+        self.screen_scale = 1.0
         self._reset_counters()
         self.not_done = True
         self._setup_tesseract()  # Einmalig beim Start
@@ -84,7 +87,7 @@ class CodeInjector:
     def _enter_code(self, code: str) -> None:
         # Type exactly the normalized code string to avoid clipboard latency.
         normalized = ''.join(code.split()).upper()
-        pyautogui.hotkey('ctrl', 'a')
+        pyautogui.hotkey('command' if IS_MACOS else 'ctrl', 'a')
         pyautogui.press('backspace')
         interval = self.config.get('write_interval')
         if interval is None:
@@ -92,7 +95,9 @@ class CodeInjector:
         pyautogui.write(normalized, interval=float(interval))
 
     def run_injection(self) -> None:
+        self._check_macos_permissions()
         self.window = self._get_game_window()
+        self.screen_scale = self._detect_screen_scale()
         scaling_factor = self._compute_scaling_factor(self.window)
         self._prepare_scaled_images(scaling_factor)
 
@@ -116,14 +121,41 @@ class CodeInjector:
         self.counter_alr = 0
         self.counter_unk = 0
 
+    def _check_macos_permissions(self) -> None:
+        missing = game_window.missing_macos_permissions()
+        if missing:
+            game_window.request_macos_permissions()
+            raise CustomException(
+                f'DBFW needs these macOS permissions: {", ".join(missing)}.\n'
+                'Allow them for the app you started DBFW from (e.g. Terminal) in '
+                'System Settings > Privacy & Security, then restart DBFW.'
+            )
+
     def _get_game_window(self) -> Any:
-        windows = gw.getWindowsWithTitle('DBSCGFW')
-        if not windows:
+        window = game_window.find_game_window(self.config.get('window_title'))
+        if window is None:
             raise CustomException('Game is not opened. Make sure the game is opened!')
-        return windows[0]
+        return window
+
+    def _detect_screen_scale(self) -> float:
+        # On a Retina Mac, screenshots (and so locateOnScreen() results) have
+        # more pixels than the points that window bounds and clicks use. On
+        # Windows pyautogui makes the process DPI-aware, so both are pixels.
+        # Only the main display is considered; the game has to be on it.
+        if not IS_MACOS:
+            return 1.0
+        return pyautogui.screenshot().width / pyautogui.size()[0]
+
+    def _click_point(self, x: float, y: float) -> tuple[float, float]:
+        # Screenshot pixels (from locateOnScreen) -> screen points for clicks.
+        return (x / self.screen_scale, y / self.screen_scale)
 
     def _compute_scaling_factor(self, window: Any) -> float:
-        current_resolution = self.resolve_to_standard_resolution(window.width, window.height)
+        # The templates were captured in screenshot pixels, so scale them to
+        # the window's size in pixels, not in (Retina) points.
+        current_resolution = self.resolve_to_standard_resolution(
+            window.width * self.screen_scale, window.height * self.screen_scale
+        )
         return self.get_scaling_factor(self.config.get('original_resolution'), current_resolution)
 
     def _prepare_scaled_images(self, scaling_factor: float) -> None:
@@ -192,7 +224,7 @@ class CodeInjector:
     def _submit_code(self, code: str) -> None:
         try:
             res = pyautogui.locateOnScreen(str(self.scaled_images['textbox']), confidence=self.config.get('confidence'))
-            location = (res.left + res.width * 0.1, res.top + res.height * 0.5)
+            location = self._click_point(res.left + res.width * 0.1, res.top + res.height * 0.5)
             pyautogui.click(*location)
             pyautogui.click(*location)
             pyautogui.sleep(self.config.get('sleep'))
@@ -203,7 +235,7 @@ class CodeInjector:
 
         try:
             res = pyautogui.locateOnScreen(str(self.scaled_images['confirm']), confidence=self.config.get('confidence'))
-            pyautogui.click(pyautogui.center(res))
+            pyautogui.click(*self._click_point(*pyautogui.center(res)))
             pyautogui.sleep(self.config.get('sleep_confirm'))
         except pyautogui.ImageNotFoundException as e:
             logging.error(f'Cannot press confirm: {e}')
@@ -226,7 +258,7 @@ class CodeInjector:
     def _close_result_dialog(self) -> None:
         try:
             res = pyautogui.locateOnScreen(str(self.scaled_images['close']), confidence=self.config.get('confidence'))
-            pyautogui.click(pyautogui.center(res))
+            pyautogui.click(*self._click_point(*pyautogui.center(res)))
         except pyautogui.ImageNotFoundException as e:
             logging.error(f'Cannot press close: {e}')
             raise CustomException('Cannot press close')
@@ -263,13 +295,23 @@ class CodeInjector:
         image = image.filter(ImageFilter.SHARPEN)           # Schärfen
         return image
 
+    def _grab_screen(self, region: tuple[int, int, int, int] | None) -> Image.Image:
+        if region is None:
+            return ImageGrab.grab()
+        if IS_MACOS:
+            # On macOS ImageGrab.grab(bbox=...) takes points and shrinks the
+            # result to that size, halving the resolution on Retina. Crop a
+            # full-resolution screenshot instead.
+            return ImageGrab.grab().crop(tuple(round(v * self.screen_scale) for v in region))
+        return ImageGrab.grab(bbox=region)
+
     def ocr_check_text(self, region: tuple[int, int, int, int] | None = None) -> str:
         """
         Macht einen Screenshot und sucht per OCR nach bekannten Texten.
         region: (left, top, right, bottom) oder None für gesamten Bildschirm
         Gibt zurück: 'alreadyused', 'invalid', 'success', 'unknown'
         """
-        screenshot = ImageGrab.grab(bbox=region) if region else ImageGrab.grab()
+        screenshot = self._grab_screen(region)
         screenshot = self._preprocess_for_ocr(screenshot)
 
         # Tesseract-Konfiguration: nur englische Zeichen, PSM 6 = gleichmäßiger Block
