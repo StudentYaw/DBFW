@@ -7,6 +7,9 @@ pygetwindow==0.0.9
 Pillow>=10.4,<11
 pytesseract>=0.3.10,<0.4
 PyYAML>=6.0,<7
+# pyautogui.locateOnScreen(confidence=...) only works with OpenCV installed;
+# without it every lookup raises NotImplementedError.
+opencv-python-headless>=4.8,<5
 
 # Required by pygetwindow/pyautogui on Windows only.
 pywin32>=306; sys_platform == "win32"
