@@ -1,3 +1,4 @@
+window_title: 'DBSCGFW'
 codes_file: 'codes.txt'
 codes_err_file: 'codes_with_errors.txt'
 code_length: 16

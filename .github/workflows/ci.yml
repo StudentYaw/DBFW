@@ -8,9 +8,13 @@ on:
 
 jobs:
   test:
-    # DBFW automates a Windows-only game (pygetwindow/pyautogui/pywin32),
-    # so tests run on a Windows runner rather than the GitHub Actions default.
-    runs-on: windows-latest
+    # The game exists for Windows and macOS, and DBFW talks to each OS
+    # differently (pygetwindow/pywin32 vs. Quartz/pyobjc), so test on both.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4

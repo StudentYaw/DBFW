@@ -8,6 +8,9 @@ import yaml
 # Single source of truth for defaults. config.yaml only needs to contain
 # overrides; any key missing there (or the whole file) falls back to this.
 DEFAULT_CONFIG: dict[str, Any] = {
+    # Matched case-insensitively against window titles (Windows) or app and
+    # window names (macOS); `python game_window.py` lists the open windows.
+    'window_title': 'DBSCGFW',
     'codes_file': 'codes.txt',
     'codes_err_file': 'codes_with_errors.txt',
     'code_length': 16,
