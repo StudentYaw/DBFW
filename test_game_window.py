@@ -124,9 +124,11 @@ def test_type_text_sends_the_characters_themselves(monkeypatch):
         CGEventPost=lambda tap, event: posted.append(event),
     )
     monkeypatch.setitem(sys.modules, "Quartz", quartz)
-    pyautogui = pytest.importorskip("pyautogui")
-    monkeypatch.setattr(pyautogui, "sleep", lambda seconds: None)
-    # pyautogui's macOS backend needs AppKit, which only exists on macOS.
+    # Stub pyautogui as a whole, like Quartz: its macOS backend needs AppKit,
+    # and where pyautogui cannot import at all, test_main.py has already put
+    # an empty placeholder module in its place.
+    pyautogui = types.SimpleNamespace(sleep=lambda seconds: None, DARWIN_CATCH_UP_TIME=0.01)
+    monkeypatch.setitem(sys.modules, "pyautogui", pyautogui)
     us_key_codes = types.SimpleNamespace(keyboardMapping={"y": 0x10, "z": 0x06, "2": 0x13})
     monkeypatch.setitem(sys.modules, "pyautogui._pyautogui_osx", us_key_codes)
 
