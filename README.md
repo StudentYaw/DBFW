@@ -28,10 +28,14 @@ Codes angezeigt werden.
 Eine eigenständige `DBFW.exe` (mit Tesseract) baut man mit
 `pip install -r requirements-build.txt` und `pyinstaller main.spec`.
 
-## macOS (Apple Silicon) – neu, noch nicht mit dem Spiel getestet
+## macOS (Apple Silicon)
 
-Die Mac-Unterstützung ist neu und wurde bisher nur automatisch getestet, nicht
-mit dem echten Spiel. Rückmeldungen zu Problemen helfen sehr.
+Mit dem echten Spiel getestet auf einem MacBook Pro mit Apple Silicon und
+deutschem Tastaturlayout. Eingelöste Codes, bereits benutzte Codes und
+ungültige Codes wurden jeweils richtig erkannt. Rückmeldungen zu Problemen
+helfen sehr.
+
+### Einrichten
 
 1. Mit [Homebrew](https://brew.sh) Python und Tesseract installieren:
    ```
@@ -47,23 +51,51 @@ mit dem echten Spiel. Rückmeldungen zu Problemen helfen sehr.
    und *Bedienungshilfen* (um zu klicken und zu tippen). Beim ersten Start
    fragt macOS danach. Danach unter *Systemeinstellungen → Datenschutz &
    Sicherheit* bei beiden Punkten das Programm einschalten, aus dem DBFW
-   gestartet wird (z. B. *Terminal*), und das Terminal neu starten.
+   gestartet wird, und dieses Programm neu starten. Das ist zum Beispiel
+   *Terminal* oder, beim Terminal in der Claude-App, *Claude*.
 4. **Fenstername prüfen:** Spiel öffnen, dann
    ```
    python game_window.py
    ```
-   ausführen. Das listet alle offenen Fenster als `App | Fenstertitel`.
+   ausführen. Das listet alle sichtbaren Fenster als `App | Fenstertitel`.
    DBFW sucht nach `window_title` aus `config.yaml` (Standard: `DBSCGFW`,
-   Groß-/Kleinschreibung egal). Steht das Spiel unter einem anderen Namen in der
-   Liste, diesen Namen in `config.yaml` eintragen.
-5. Starten:
-   ```
-   python main.py
-   ```
+   Groß-/Kleinschreibung egal). Das Spiel selbst heißt `DBSCGFW`, der Launcher
+   `DBSCG FW` (mit Leerzeichen). Der Standard passt also. Steht das Spiel unter
+   einem anderen Namen in der Liste, diesen Namen in `config.yaml` eintragen.
+
+### Codes einlösen
+
+1. Das Spiel im **Fenstermodus** laufen lassen, nicht im macOS-Vollbild. Am
+   besten das Fenster groß ziehen, z. B. über den grünen Knopf → „Füllen“.
+2. Im Spiel *Enter a code* → *Serial code* öffnen. Die vier Eingabefelder
+   müssen leer sein, sonst einmal auf *Reset* klicken.
+3. `python main.py` starten. Das Spiel muss dabei **auf dem aktuellen
+   Bildschirm sichtbar** sein (siehe Hinweise).
+4. Im Fenster *Code Extractor* die Codes einfügen, auf **Extract Codes**
+   klicken und die Meldung mit OK schließen. Erst dann auf **Next** klicken.
+   *Next* allein speichert keine Codes.
+5. Bei „This process will take approximately … Continue?“ auf **OK** klicken.
+   Ab dann **Maus und Tastatur nicht anfassen**, bis DBFW das Ergebnis meldet.
+   Pro Code dauert es etwa 10 Sekunden.
 
 Hinweise:
+- **Kein macOS-Vollbild und kein anderer Space:** DBFW findet nur Fenster,
+  die beim Start auf dem aktuellen Bildschirm sichtbar sind. Läuft das Spiel
+  im Vollbild oder auf einem anderen Schreibtisch, meldet DBFW „Game is not
+  opened“. Seine eigenen Fenster öffnen sich außerdem auf dem Schreibtisch und
+  verdecken sonst das Spiel.
+- **Nichts über dem Spiel:** DBFW sucht das Eingabefeld und den *Confirm*-Knopf
+  auf dem Bildschirm. Liegt ein anderes Fenster darüber, z. B. das Terminal,
+  meldet DBFW „Codes section is not opened“ oder „Cannot press confirm“.
 - Das Spiel muss auf dem **Hauptbildschirm** laufen.
-- Retina-Bildschirme werden automatisch berücksichtigt.
+- Retina-Bildschirme und Fenster, die nicht 16:9 sind (das Spiel zeigt dann
+  schwarze Balken), werden automatisch berücksichtigt.
+- Andere Tastaturlayouts als US (z. B. Deutsch) werden unterstützt.
+- Das Spiel sperrt die Code-Eingabe nach **10 falschen Codes für 6 Stunden**.
+  DBFW bricht eine Runde nach `max_errors` ungültigen oder unklaren Codes ab
+  (Standard: 5).
+- Liegen mehrere Karten auf einem Foto, erkennt die Foto-OCR nicht immer alle
+  Codes. Die Liste nach dem Hochladen prüfen oder die Codes als Text eingeben.
 - Eine fertige Mac-App (`.app`) gibt es noch nicht.
 
 ## Konfiguration (`config.yaml`)

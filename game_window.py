@@ -17,6 +17,7 @@ _WINDOW_NAME = "kCGWindowName"
 _LAYER = "kCGWindowLayer"
 _NUMBER = "kCGWindowNumber"
 _BOUNDS = "kCGWindowBounds"
+_ALPHA = "kCGWindowAlpha"
 
 
 class MacWindow:
@@ -72,7 +73,9 @@ def _mac_window_infos() -> list[Any]:
         Quartz.kCGNullWindowID,
     )
     # Layer 0 holds normal app windows; skip the menu bar, Dock, overlays, ...
-    return [info for info in (infos or []) if info.get(_LAYER, 0) == 0]
+    # Also skip invisible windows: a full-screen game has a transparent
+    # title bar strip in front of it that would be taken for the game.
+    return [info for info in (infos or []) if info.get(_LAYER, 0) == 0 and info.get(_ALPHA, 1) > 0]
 
 
 def _match_mac_window(infos: list[Any], title: str) -> int | None:
@@ -111,6 +114,31 @@ def list_windows() -> list[str]:
     import pygetwindow
 
     return [title for title in pygetwindow.getAllTitles() if title]
+
+
+def type_text(text: str, interval: float) -> None:
+    """Type `text` into the focused window on macOS.
+
+    pyautogui.write() sends the key codes of a US keyboard, so with another
+    layout active some characters come out wrong (German: Y and Z are
+    swapped). Each key event here also carries the character itself, which
+    text fields use instead of the key code, whatever the layout.
+    """
+    import pyautogui
+    import Quartz
+    from pyautogui._pyautogui_osx import keyboardMapping
+
+    for char in text:
+        key_code = keyboardMapping.get(char.lower()) or 0
+        for key_down in (True, False):
+            event = Quartz.CGEventCreateKeyboardEvent(None, key_code, key_down)
+            Quartz.CGEventKeyboardSetUnicodeString(event, len(char), char)
+            if char.isupper():
+                Quartz.CGEventSetFlags(event, Quartz.kCGEventFlagMaskShift)
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+            # Same pause pyautogui makes after each key event on macOS.
+            pyautogui.sleep(pyautogui.DARWIN_CATCH_UP_TIME)
+        pyautogui.sleep(interval)
 
 
 def missing_macos_permissions() -> list[str]:

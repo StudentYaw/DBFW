@@ -66,6 +66,11 @@ def message_box(
     # Execute the message box and wait for user action
     result = msg_box.exec()
 
+    # On macOS the answered box stays on screen until Qt handles its pending
+    # events, and main.py handles none while it clicks through the game: the
+    # box would cover the game's text box. Let it disappear now.
+    app.processEvents()
+
     # Return corresponding result based on the button clicked
     return result
 

@@ -53,6 +53,17 @@ def wait_for_ocr(window, timeout=10.0):
         time.sleep(0.01)
 
 
+def test_message_box_is_off_screen_before_it_returns(qapp, monkeypatch):
+    # On macOS an answered box stays on screen until Qt handles its events;
+    # main.py would then find the box instead of the game's text box.
+    events = []
+    monkeypatch.setattr(dialog.QMessageBox, "exec", lambda self: events.append("exec") or dialog.IDOK)
+    monkeypatch.setattr(dialog.QApplication, "processEvents", lambda *args: events.append("processEvents"))
+
+    assert dialog.message_box("Continue?", style=dialog.STYLE_OKCANCEL) == dialog.IDOK
+    assert events == ["exec", "processEvents"]
+
+
 def test_config_manager_load():
     config = ConfigManager()
     assert config.get('code_length') == 16

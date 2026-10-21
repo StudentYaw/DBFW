@@ -60,6 +60,16 @@ def test_mac_window_list_skips_menu_bar_and_overlays(monkeypatch):
     assert [info["kCGWindowNumber"] for info in game_window._mac_window_infos()] == [2]
 
 
+def test_mac_window_list_skips_invisible_windows(monkeypatch):
+    # A full-screen game puts a transparent title bar strip in front of
+    # its window; it must not be taken for the game window.
+    title_bar = dict(_info("DBSCGFW", number=2), kCGWindowAlpha=0.0)
+    game = dict(_info("DBSCGFW", number=3), kCGWindowAlpha=1.0)
+    monkeypatch.setitem(sys.modules, "Quartz", _fake_quartz([title_bar, game]))
+
+    assert [info["kCGWindowNumber"] for info in game_window._mac_window_infos()] == [3]
+
+
 def test_find_game_window_on_macos(monkeypatch):
     monkeypatch.setattr(game_window, "IS_MACOS", True)
     monkeypatch.setitem(sys.modules, "Quartz", _fake_quartz([_info("Finder", number=1), _info("DBSCGFW", number=2)]))
@@ -88,6 +98,45 @@ def test_mac_window_reports_a_closed_window(monkeypatch):
 
     with pytest.raises(RuntimeError, match="closed"):
         game_window.MacWindow(42).left
+
+
+def test_type_text_sends_the_characters_themselves(monkeypatch):
+    # pyautogui's US key codes give Z for Y (and Y for Z) on a German
+    # layout, so every key event must carry its character as well.
+    posted = []
+
+    class Event:
+        def __init__(self, key_code, key_down):
+            self.key_code, self.key_down, self.char, self.flags = key_code, key_down, None, 0
+
+    def set_unicode_string(event, length, char):
+        event.char = char
+
+    def set_flags(event, flags):
+        event.flags = flags
+
+    quartz = types.SimpleNamespace(
+        kCGEventFlagMaskShift=0x20000,
+        kCGHIDEventTap=0,
+        CGEventCreateKeyboardEvent=lambda source, key_code, key_down: Event(key_code, key_down),
+        CGEventKeyboardSetUnicodeString=set_unicode_string,
+        CGEventSetFlags=set_flags,
+        CGEventPost=lambda tap, event: posted.append(event),
+    )
+    monkeypatch.setitem(sys.modules, "Quartz", quartz)
+    pyautogui = pytest.importorskip("pyautogui")
+    monkeypatch.setattr(pyautogui, "sleep", lambda seconds: None)
+    # pyautogui's macOS backend needs AppKit, which only exists on macOS.
+    us_key_codes = types.SimpleNamespace(keyboardMapping={"y": 0x10, "z": 0x06, "2": 0x13})
+    monkeypatch.setitem(sys.modules, "pyautogui._pyautogui_osx", us_key_codes)
+
+    game_window.type_text("YZ2", 0.03)
+
+    assert [(e.char, e.key_down) for e in posted] == [
+        ("Y", True), ("Y", False), ("Z", True), ("Z", False), ("2", True), ("2", False),
+    ]
+    assert [e.key_code for e in posted] == [0x10, 0x10, 0x06, 0x06, 0x13, 0x13]
+    assert [e.flags for e in posted] == [0x20000] * 4 + [0, 0]
 
 
 def test_permissions_are_not_checked_outside_macos(monkeypatch):

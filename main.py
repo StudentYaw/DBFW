@@ -41,7 +41,10 @@ class CodeInjector:
     ) -> float:
         width_factor = current_resolution[0] / original_resolution[0]
         height_factor = current_resolution[1] / original_resolution[1]
-        return (width_factor + height_factor) / 2
+        # The game keeps its 16:9 picture and fills the rest of a window with
+        # another aspect ratio with black bars (e.g. top and bottom on a 16:10
+        # Mac screen), so the smaller factor is the one the picture uses.
+        return min(width_factor, height_factor)
 
     def scale_image(self, image_path: Path, scaling_factor: float) -> Path:
         scaled_path = self.resources / (image_path.stem + '_scaled.png')
@@ -92,7 +95,11 @@ class CodeInjector:
         interval = self.config.get('write_interval')
         if interval is None:
             interval = 0.05
-        pyautogui.write(normalized, interval=float(interval))
+        if IS_MACOS:
+            # pyautogui would mistype on non-US layouts, see type_text().
+            game_window.type_text(normalized, float(interval))
+        else:
+            pyautogui.write(normalized, interval=float(interval))
 
     def run_injection(self) -> None:
         self._check_macos_permissions()
