@@ -182,7 +182,13 @@ class CodeInjector:
                     raise CustomException('Ungültige Codes gefunden:\n' + '\n'.join(invalid))
         except FileNotFoundError:
             raise CustomException(f'{self.config.get("codes_file")} not found')
-        return codes
+        # The Code Extractor appends to the codes file, so a code can be in it
+        # twice, e.g. entered again after an aborted round wrote it back.
+        # Submitting it twice only wastes a try, so keep the first of each.
+        unique = list(dict.fromkeys(codes))
+        if len(unique) < len(codes):
+            logging.info(f'Removed {len(codes) - len(unique)} duplicate code(s) from {self.config.get("codes_file")}')
+        return unique
 
     def _confirm_start(self, codes: list[str]) -> None:
         approx_time = int(1 + len(codes) * (self.config.get('sleep') + self.config.get('sleep_confirm') + self.config.get('code_length') * self.config.get('write_interval')) / 60)
