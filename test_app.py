@@ -135,43 +135,49 @@ def test_upload_image_and_extract_can_overwrite(extractor, monkeypatch, tmp_path
     assert "WXYZ 9876 IJKL 5432" in message_box_calls[-1]
 
 
-def test_manual_mode_indicator_starts_in_overwrite_with_first_click_hint(extractor):
-    assert extractor.manual_overwrite is True
-    assert extractor._first_extract_click_pending is True
-    assert "Overwrite" in extractor.mode_label.text()
-    assert "First click" in extractor.mode_label.text()
-    assert extractor.toggle_mode_button.text() == "Switch to Append"
-
-
-def test_extract_button_first_click_switches_to_append(extractor, monkeypatch):
-    calls = []
-
-    def fake_extract_codes(*, overwrite=True):
-        calls.append(overwrite)
-
-    monkeypatch.setattr(extractor, "extract_codes", fake_extract_codes)
-
-    extractor.extract_button.click()
-
-    assert calls == [False]
+def test_manual_mode_starts_in_append(extractor):
+    # Appending keeps the codes an aborted round left in the codes file.
     assert extractor.manual_overwrite is False
-    assert extractor._first_extract_click_pending is False
     assert extractor.mode_label.text() == "Manual Extract Mode: Append"
     assert extractor.toggle_mode_button.text() == "Switch to Overwrite"
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+def test_extract_button_does_what_the_mode_label_says(extractor, monkeypatch, overwrite):
+    # There used to be a hidden switch: the label said "Overwrite", but the
+    # first click silently changed the mode to "Append".
+    calls = []
+    monkeypatch.setattr(extractor, "extract_codes", lambda *, overwrite: calls.append(overwrite))
+    if overwrite:
+        extractor.toggle_mode_button.click()
+    label = extractor.mode_label.text()
+
+    extractor.extract_button.click()
+    extractor.extract_button.click()
+
+    assert label == f"Manual Extract Mode: {'Overwrite' if overwrite else 'Append'}"
+    assert calls == [overwrite, overwrite]
+    assert extractor.mode_label.text() == label
 
 
 def test_toggle_extract_mode_updates_indicator(extractor):
     extractor.toggle_mode_button.click()
 
+    assert extractor.manual_overwrite is True
+    assert extractor.mode_label.text() == "Manual Extract Mode: Overwrite"
+    assert extractor.toggle_mode_button.text() == "Switch to Append"
+
+    extractor.toggle_mode_button.click()
+
     assert extractor.manual_overwrite is False
-    assert extractor._first_extract_click_pending is False
     assert extractor.mode_label.text() == "Manual Extract Mode: Append"
     assert extractor.toggle_mode_button.text() == "Switch to Overwrite"
 
 
-def test_code_extractor_reads_manual_overwrite_default_from_config(qapp, monkeypatch):
+@pytest.mark.parametrize("configured, mode_name", [(True, "Overwrite"), (False, "Append")])
+def test_code_extractor_reads_manual_overwrite_default_from_config(qapp, monkeypatch, configured, mode_name):
     config_values = {
-        "manual_overwrite_default": False,
+        "manual_overwrite_default": configured,
         "ocr_overwrite_default": False,
     }
     monkeypatch.setattr(CodeExtractor, "_setup_tesseract", lambda self: None)
@@ -179,9 +185,8 @@ def test_code_extractor_reads_manual_overwrite_default_from_config(qapp, monkeyp
 
     window = CodeExtractor()
     try:
-        assert window.manual_overwrite is False
-        assert window._first_extract_click_pending is False
-        assert window.mode_label.text() == "Manual Extract Mode: Append"
+        assert window.manual_overwrite is configured
+        assert window.mode_label.text() == f"Manual Extract Mode: {mode_name}"
     finally:
         window.close()
 
@@ -224,20 +229,10 @@ def test_extract_codes_rejects_ocr_fragments_and_keeps_valid_groups(extractor):
     assert codes == ["Q7NL HU2Z CYMU UMZ5"]
 
 
-def test_extract_codes_allows_single_compact_manual_input(extractor):
+def test_extract_codes_allows_single_compact_manual_input(extractor, monkeypatch, message_box_calls):
     extractor.input_box.setPlainText("abcd1234efgh5678")
     calls = []
-
-    def fake_write_codes(codes, overwrite=True):
-        calls.extend(codes)
-
-    from dialog import IDOK
-
-    def fake_message_box(*args, **kwargs):
-        return IDOK
-
-    extractor._write_codes = fake_write_codes
-    dialog.message_box = fake_message_box
+    monkeypatch.setattr(extractor, "_write_codes", lambda codes, overwrite=True: calls.extend(codes))
 
     extractor.extract_codes(overwrite=True)
 
@@ -250,24 +245,15 @@ def test_extract_codes_rejects_wordy_compact_false_positives(extractor):
     assert codes == ["ABCD 1234 EFGH 5678"]
 
 
-def test_extract_codes_compact_manual_input_rejects_wordy_string(extractor):
+def test_extract_codes_compact_manual_input_rejects_wordy_string(extractor, monkeypatch, message_box_calls):
     extractor.input_box.setPlainText("WORKCARDGAMEF809")
     calls = []
-
-    def fake_write_codes(codes, overwrite=True):
-        calls.extend(codes)
-
-    from dialog import IDOK
-
-    def fake_message_box(*args, **kwargs):
-        return IDOK
-
-    extractor._write_codes = fake_write_codes
-    dialog.message_box = fake_message_box
+    monkeypatch.setattr(extractor, "_write_codes", lambda codes, overwrite=True: calls.extend(codes))
 
     extractor.extract_codes(overwrite=True)
 
     assert calls == []
+    assert message_box_calls == ["No valid codes were found in the text."]
 
 
 def test_extract_codes_accepts_two_digit_grouped_codes(extractor):
