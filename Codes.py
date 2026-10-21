@@ -74,11 +74,9 @@ class CodeExtractor(QMainWindow):
         self.setWindowTitle("Code Extractor")
         self.setGeometry(100, 100, 600, 400)
         self.setWindowIcon(QIcon(str(LOGO)))
-        self.manual_overwrite = self._get_bool_config("manual_overwrite_default", True)
+        self.manual_overwrite = self._get_bool_config("manual_overwrite_default", False)
         self.ocr_overwrite_default = self._get_bool_config("ocr_overwrite_default", False)
         self.ocr_selection_mode = self._get_ocr_selection_mode_config()
-        # Erstklick-Switch ist nur sinnvoll, wenn initial Overwrite aktiv ist.
-        self._first_extract_click_pending = self.manual_overwrite
         self._ocr_running = False
         self.ocr_finished.connect(self._on_ocr_finished)
         self.ocr_failed.connect(self._on_ocr_failed)
@@ -674,21 +672,15 @@ class CodeExtractor(QMainWindow):
 
     def _update_mode_indicator(self) -> None:
         mode_name = "Overwrite" if self.manual_overwrite else "Append"
-        first_click_hint = " (First click switches to append)" if self._first_extract_click_pending else ""
-        self.mode_label.setText(f"Manual Extract Mode: {mode_name}{first_click_hint}")
+        self.mode_label.setText(f"Manual Extract Mode: {mode_name}")
         next_mode = "Append" if self.manual_overwrite else "Overwrite"
         self.toggle_mode_button.setText(f"Switch to {next_mode}")
 
     def toggle_extract_mode(self) -> None:
         self.manual_overwrite = not self.manual_overwrite
-        self._first_extract_click_pending = False
         self._update_mode_indicator()
 
     def _handle_extract_button_click(self) -> None:
-        if self._first_extract_click_pending:
-            self.manual_overwrite = False
-            self._first_extract_click_pending = False
-            self._update_mode_indicator()
         self.extract_codes(overwrite=self.manual_overwrite)
 
 

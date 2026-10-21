@@ -113,7 +113,7 @@ Fehlende Einträge fallen auf die Standardwerte in `config_manager.py` zurück.
 | `original_resolution` | Auflösung, in der die Bilder in `res/` aufgenommen wurden |
 | `tolerance` | Toleranz beim Einrasten auf Standardauflösungen (Pixel) |
 | `max_errors` | Abbruch nach so vielen ungültigen/unklaren Codes pro Runde |
-| `manual_overwrite_default` / `ocr_overwrite_default` | Codes-Datei überschreiben statt anhängen |
+| `manual_overwrite_default` / `ocr_overwrite_default` | Codes-Datei überschreiben statt anhängen (Standard: anhängen, damit Codes aus einer abgebrochenen Runde erhalten bleiben) |
 
 ## Tests
 

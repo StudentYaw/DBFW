@@ -21,7 +21,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     'original_resolution': [1920, 1080],
     'tolerance': 100,
     'max_errors': 5,
-    'manual_overwrite_default': True,
+    # Append by default: after an aborted round codes.txt still holds the
+    # codes that were not entered yet, and overwriting would lose them.
+    'manual_overwrite_default': False,
     'ocr_overwrite_default': False,
 }
 

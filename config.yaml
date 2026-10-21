@@ -9,5 +9,5 @@ write_interval: 0.03
 original_resolution: [1920, 1080]
 tolerance: 100
 max_errors: 5
-manual_overwrite_default: true
+manual_overwrite_default: false
 ocr_overwrite_default: false
