@@ -228,14 +228,30 @@ def test_template_scaling_uses_the_window_size_in_screenshot_pixels(injector, sc
     assert injector._compute_scaling_factor(Window()) == expected
 
 
+def test_template_scaling_ignores_the_black_bars_of_a_16_10_window(injector):
+    # Full-screen game on a 16" MacBook Pro: 3456x2168 pixels, of which the
+    # game's 16:9 picture uses 3456x1944 (1.8x the 1920x1080 templates).
+    class Window:
+        width, height = 1728, 1084
+
+    injector.screen_scale = 2.0
+
+    assert injector._compute_scaling_factor(Window()) == pytest.approx(1.8)
+
+
 @pytest.mark.parametrize("is_macos, modifier", [(False, "ctrl"), (True, "command")])
 def test_select_all_uses_the_platform_modifier(injector, monkeypatch, is_macos, modifier):
     monkeypatch.setattr(main, "IS_MACOS", is_macos)
+    monkeypatch.setattr(main.game_window, "type_text", mock.MagicMock())
 
     injector._enter_code("AAAA 1111 BBBB 2222")
 
     main.pyautogui.hotkey.assert_called_once_with(modifier, "a")
-    main.pyautogui.write.assert_called_once_with("AAAA1111BBBB2222", interval=0.03)
+    if is_macos:
+        main.game_window.type_text.assert_called_once_with("AAAA1111BBBB2222", 0.03)
+        main.pyautogui.write.assert_not_called()
+    else:
+        main.pyautogui.write.assert_called_once_with("AAAA1111BBBB2222", interval=0.03)
 
 
 def test_ocr_on_macos_crops_a_full_resolution_screenshot(injector, monkeypatch):
