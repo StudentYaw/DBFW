@@ -135,6 +135,22 @@ def test_unhandled_codes_are_saved_when_a_step_fails(injector, monkeypatch, tmp_
     )
 
 
+def test_duplicate_codes_are_submitted_once(injector, monkeypatch, tmp_path):
+    # The Code Extractor appends, so after an aborted round wrote the codes
+    # back (without spaces) the same codes can be added again (with spaces).
+    (tmp_path / "codes.txt").write_text(
+        "AAAA1111BBBB2222\nCCCC3333DDDD4444\nAAAA 1111 BBBB 2222\ncccc 3333 dddd 4444\n", encoding="utf-8"
+    )
+    events = []
+    _stub_screen(injector, monkeypatch, ["success"] * 4, events)
+    monkeypatch.setattr(injector, "_report_results", lambda errors: setattr(injector, "not_done", False))
+
+    injector.run_injection()
+
+    assert [event[1] for event in events if event[0] == "submit"] == ["AAAA1111BBBB2222", "CCCC3333DDDD4444"]
+    assert (tmp_path / "codes.txt").read_text(encoding="utf-8") == ""
+
+
 def test_ocr_reads_only_the_game_window(injector, monkeypatch):
     regions = []
 
