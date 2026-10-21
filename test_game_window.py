@@ -126,12 +126,16 @@ def test_type_text_sends_the_characters_themselves(monkeypatch):
     monkeypatch.setitem(sys.modules, "Quartz", quartz)
     pyautogui = pytest.importorskip("pyautogui")
     monkeypatch.setattr(pyautogui, "sleep", lambda seconds: None)
+    # pyautogui's macOS backend needs AppKit, which only exists on macOS.
+    us_key_codes = types.SimpleNamespace(keyboardMapping={"y": 0x10, "z": 0x06, "2": 0x13})
+    monkeypatch.setitem(sys.modules, "pyautogui._pyautogui_osx", us_key_codes)
 
     game_window.type_text("YZ2", 0.03)
 
     assert [(e.char, e.key_down) for e in posted] == [
         ("Y", True), ("Y", False), ("Z", True), ("Z", False), ("2", True), ("2", False),
     ]
+    assert [e.key_code for e in posted] == [0x10, 0x10, 0x06, 0x06, 0x13, 0x13]
     assert [e.flags for e in posted] == [0x20000] * 4 + [0, 0]
 
 
